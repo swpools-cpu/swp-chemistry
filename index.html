@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>SW Pools — LSI Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: #152d53; overflow-x: hidden; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useCallback } = React;
+
+// ─── BRAND COLORS ──────────────────────────────────────────────────────────
+const B = {
+  navy:     '#152d53',
+  navyMid:  '#1a3660',
+  navyLight:'#1f3f70',
+  blue:     '#03417f',
+  teal:     '#238baa',
+  tealDim:  '#1a6b83',
+  tealGlow: '#238baa40',
+  white:    '#fdfdfd',
+  gray:     '#e6e7e8',
+  grayMid:  '#b8b8b8',
+  grayDim:  '#7a8ea0',
+  // Orenda LSI colors
+  lsiRed:    '#d9534f',
+  lsiYellow: '#f0ad4e',
+  lsiGreen:  '#5cb85c',
+  lsiPurple: '#9b59b6',
+};
+
+// ─── LOGO BASE64 ───────────────────────────────────────────────────────────
+const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAEwmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSfvu78nIGlkPSdXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQnPz4KPHg6eG1wbWV0YSB4bWxuczp4PSdhZG9iZTpuczptZXRhLyc+CjxyZGY6UkRGIHhtbG5zOnJkZj0naHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyc+CgogPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9JycKICB4bWxuczpBdHRyaWI9J2h0dHA6Ly9ucy5hdHRyaWJ1dGlvbi5jb20vYWRzLzEuMC8nPgogIDxBdHRyaWI6QWRzPgogICA8cmRmOlNlcT4KICAgIDxyZGY6bGkgcmRmOnBhcnNlVHlwZT0nUmVzb3VyY2UnPgogICAgIDxBdHRyaWI6Q3JlYXRlZD4yMDI1LTAyLTE5PC9BdHRyaWI6Q3JlYXRlZD4KICAgICA8QXR0cmliOkV4dElkPjNhNDgxOTk4LTFhMTYtNDFhYy1hMjM4LWIzNGZhY2QwNDVkNzwvQXR0cmliOkV4dElkPgogICAgIDxBdHRyaWI6RmJJZD41MjUyNjU5MTQxNzk1ODA8L0F0dHJpYjpGYklkPgogICAgIDxBdHRyaWI6VG91Y2hUeXBlPjI8L0F0dHJpYjpUb3VjaFR5cGU+CiAgICA8L3JkZjpsaT4KICAgPC9yZGY6U2VxPgogIDwvQXR0cmliOkFkcz4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6ZGM9J2h0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvJz4KICA8ZGM6dGl0bGU+CiAgIDxyZGY6QWx0PgogICAgPHJkZjpsaSB4bWw6bGFuZz0neC1kZWZhdWx0Jz5TVyBsb2dvIDIgZGFyayBibHVlIC0gMTwvcmRmOmxpPgogICA8L3JkZjpBbHQ+CiAgPC9kYzp0aXRsZT4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3Jp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";
+
+// ─── LSI LOOKUP TABLES (PHTA Standard) ─────────────────────────────────────
+const TEMP_TABLE = [[32,0.0],[37,0.1],[46,0.2],[53,0.3],[60,0.4],[66,0.5],[76,0.6],[84,0.7],[94,0.8],[105,0.9]];
+const CH_TABLE   = [[5,0.3],[25,1.0],[50,1.3],[75,1.5],[100,1.6],[150,1.8],[200,1.9],[250,2.0],[300,2.1],[400,2.2],[800,2.5],[1000,2.6]];
+const TA_TABLE   = [[5,0.7],[25,1.4],[50,1.7],[75,1.9],[100,2.0],[150,2.2],[200,2.3],[250,2.4],[300,2.5],[400,2.6],[800,2.9],[1000,3.0]];
+
+function interp(table, val) {
+  const v = Math.max(table[0][0], Math.min(table[table.length-1][0], val));
+  for (let i = 0; i < table.length - 1; i++) {
+    if (v >= table[i][0] && v <= table[i+1][0]) {
+      const t = (v - table[i][0]) / (table[i+1][0] - table[i][0]);
+      return +(table[i][1] + t * (table[i+1][1] - table[i][1])).toFixed(3);
+    }
+  }
+  return table[table.length-1][1];
+}
+
+// ─── PARAMETER CONFIG ──────────────────────────────────────────────────────
+const PARAMS = [
+  { key: 'temp',  label: 'Water °F',          min: 32,  max: 105, step: 1,   default: 70,   lsiParam: true },
+  { key: 'pH',    label: 'pH',                 min: 6.0, max: 8.6, step: 0.1, default: 7.5,  lsiParam: true, decimals: 1, showCeiling: true },
+  { key: 'ta',    label: 'Total Alkalinity',   min: 0,   max: 800, step: 5,   default: 90,   lsiParam: true, showCarbAlk: true, subLabel: 'Carbonate Alkalinity' },
+  { key: 'ch',    label: 'Calcium',            min: 0,   max: 1000,step: 10,  default: 350,  lsiParam: true },
+  { key: 'cya',   label: 'CYA',               min: 0,   max: 300, step: 5,   default: 40,   lsiParam: true },
+  { key: 'tds',   label: 'TDS/Salt',          min: 0,   max: 8000,step: 100, default: 0,    lsiParam: true },
+];
+
+const EXTRA_PARAMS = [
+  { key: 'fc',    label: 'Chlorine',           min: 0,   max: 20,  step: 0.25,default: 3.5,  decimals: 2 },
+  { key: 'phos',  label: 'Phosphate',          min: 0,   max: 5000,step: 100, default: 0 },
+];
+
+// ─── LSI CALCULATION ───────────────────────────────────────────────────────
+function calcLSI(vals) {
+  const carbAlk = Math.max(vals.ta - Math.round(vals.cya / 3), 5);
+  const TF = interp(TEMP_TABLE, vals.temp);
+  const CF = interp(CH_TABLE, Math.max(vals.ch, 5));
+  const AF = interp(TA_TABLE, Math.max(carbAlk, 5));
+  const lsi = +(vals.pH + TF + CF + AF - 12.1).toFixed(2);
+  return { lsi, TF, CF, AF, carbAlk };
+}
+
+// ─── DOSING — Calibrated against Orenda app (March 2026) ───────────────────
+// Muriatic acid uses TA-dependent formula (alkalinity buffers pH change)
+// All other multipliers derived from single-point Orenda calibration at 10k gal
+function calcDosing(current, desired, volume) {
+  const vf = volume / 10000;
+  const carbAlk = Math.max(current.ta - Math.round(current.cya / 3), 5);
+  const recs = [];
+  // Muriatic Acid — TA-dependent: dose = pH_drop × (5.317 + 0.2495 × carbAlk) × vf
+  // Calibrated: pH 8.0→7.5, 10k, TA=60/CYA=20 → 9.27 fl oz; TA=100/CYA=20 → 14.26 fl oz
+  if (current.pH > desired.pH + 0.05) {
+    const pHDrop = current.pH - desired.pH;
+    const acidDose = +(pHDrop * (5.317 + 0.2495 * carbAlk) * vf).toFixed(2);
+    recs.push({ chem:'Muriatic Acid (31.45%)', amount:acidDose, unit:'fl oz', reason:`Lower pH ${current.pH.toFixed(1)} → ${desired.pH.toFixed(1)}` });
+  }
+  // Soda Ash — 0.502 lbs per 0.1 pH per 10k gal (calibrated: 2.51 lbs for pH 7.0→7.5 at 10k)
+  if (current.pH < desired.pH - 0.05) {
+    recs.push({ chem:'Soda Ash (Na₂CO₃)', amount:+(((desired.pH - current.pH)/0.1)*0.502*vf).toFixed(2), unit:'lbs', reason:`Raise pH ${current.pH.toFixed(1)} → ${desired.pH.toFixed(1)}` });
+  }
+  // Sodium Bicarbonate — 1.4 lbs per 10 ppm per 10k gal (calibrated: 2.80 lbs for TA 60→80 at 10k)
+  if (current.ta < desired.ta - 5) {
+    recs.push({ chem:'Sodium Bicarbonate', amount:+(((desired.ta - current.ta)/10)*1.4*vf).toFixed(2), unit:'lbs', reason:`Raise TA ${current.ta} → ${desired.ta} ppm` });
+  }
+  // TA too high — no simple chemical dose, acid + aeration
+  if (current.ta > desired.ta + 20) {
+    recs.push({ chem:'Muriatic Acid + Aerate', amount:null, unit:'', reason:`TA ${current.ta} is high — add acid & aerate to degas CO₂` });
+  }
+  // Calcium Chloride 77% — 1.226 lbs per 10 ppm per 10k gal (calibrated: 18.39 lbs for CH 200→350 at 10k)
+  if (current.ch < desired.ch - 25) {
+    recs.push({ chem:'Calcium Chloride (77%)', amount:+(((desired.ch - current.ch)/10)*1.226*vf).toFixed(2), unit:'lbs', reason:`Raise CH ${current.ch} → ${desired.ch} ppm` });
+  }
+  // CYA — 0.833 lbs per 10 ppm per 10k gal (calibrated: 2.50 lbs for CYA 20→50 at 10k)
+  if (current.cya < desired.cya - 5) {
+    recs.push({ chem:'CYA / Stabilizer', amount:+(((desired.cya - current.cya)/10)*0.833*vf).toFixed(2), unit:'lbs', reason:`Raise CYA ${current.cya} → ${desired.cya} ppm` });
+  }
+  // Liquid Chlorine 10% — 12.8 fl oz per 1 ppm per 10k gal (calibrated: 25.60 fl oz for FC 1→3 at 10k)
+  if (current.fc < desired.fc - 0.5) {
+    recs.push({ chem:'Liquid Chlorine (10%)', amount:+((desired.fc - current.fc)*12.8*vf).toFixed(1), unit:'fl oz', reason:`Raise FC ${current.fc.toFixed(1)} → ${desired.fc.toFixed(1)} ppm` });
+  }
+  // Pool Salt — 8.345 lbs per 100 ppm per 10k gal (calibrated: 66.76 lbs for salt 2400→3200 at 10k)
+  if (current.tds > 0 && current.tds < desired.tds - 200) {
+    recs.push({ chem:'Pool Salt (NaCl)', amount:+(((desired.tds - current.tds)/100)*8.345*vf).toFixed(1), unit:'lbs', reason:`Raise salt ${current.tds} → ${desired.tds} ppm` });
+  }
+  return recs;
+}
+
+// ─── ORENDA LSI COLORS ─────────────────────────────────────────────────────
+function lsiMeta(lsi) {
+  if (lsi <= -0.31) return { label:'CORROSIVE',     color: B.lsiRed,    bg: B.lsiRed };
+  if (lsi <= -0.01) return { label:'ACCEPTABLE',    color: B.lsiYellow, bg: B.lsiYellow };
+  if (lsi <= 0.30)  return { label:'BALANCED',      color: B.lsiGreen,  bg: B.lsiGreen };
+  return                    { label:'SCALE FORMING', color: B.lsiPurple, bg: B.lsiPurple };
+}
+
+// ─── pH CEILING ────────────────────────────────────────────────────────────
+function phCeiling(ta, cya) {
+  const carbAlk = Math.max(ta - Math.round(cya / 3), 5);
+  return +(Math.min(8.4, 7.5 + (carbAlk - 80) * 0.005)).toFixed(2);
+}
+
+// ─── STYLES ────────────────────────────────────────────────────────────────
+const S = {
+  app: { fontFamily:"'Jost',sans-serif", background: B.navy, minHeight:'100vh', maxWidth:440, margin:'0 auto', color: B.white, position:'relative' },
+  header: { background: `linear-gradient(135deg, ${B.blue} 0%, ${B.teal} 100%)`, padding:'16px 20px 14px', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'0 0 16px 16px' },
+  logo: { height: 40 },
+  jobBar: { padding:'10px 16px', display:'flex', gap:8 },
+  jobInput: { flex:1, background: B.navyMid, border:`1px solid ${B.navyLight}`, borderRadius:8, padding:'8px 12px', color: B.white, fontFamily:"'Jost',sans-serif", fontSize:13, outline:'none' },
+  card: { background: B.navyMid, margin:'0 12px 12px', borderRadius:14, padding:'14px 10px', border:`1px solid ${B.navyLight}` },
+  toggleRow: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 },
+  toggleGroup: { display:'flex', borderRadius:20, overflow:'hidden', border:`1px solid ${B.teal}` },
+  toggleBtn: (active) => ({ padding:'6px 18px', fontSize:13, fontWeight:600, cursor:'pointer', border:'none', background: active ? B.teal : 'transparent', color: active ? B.white : B.tealDim, transition:'all 0.2s' }),
+  volBox: { display:'flex', alignItems:'center', gap:6 },
+  volLabel: { fontSize:11, color: B.grayMid, fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 },
+  volInput: { width:80, textAlign:'center', background: B.navyLight, border:`1px solid ${B.grayDim}`, borderRadius:8, padding:'6px 8px', color: B.white, fontFamily:"'Jost',sans-serif", fontSize:14, fontWeight:700, outline:'none' },
+  colHeader: { fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:1, color: B.grayMid, textAlign:'center', marginBottom:6 },
+  paramRow: { display:'flex', alignItems:'center', justifyContent:'center', marginBottom:2, minHeight:48 },
+  paramLabel: { flex:'1 1 0', textAlign:'center', fontSize:13, fontWeight:600, color: B.teal, lineHeight:1.2 },
+  subLabel: { fontSize:10, color: B.tealDim, fontStyle:'italic', textAlign:'center', marginTop:1 },
+  // Dial mode
+  dialGroup: { display:'flex', alignItems:'center', gap:2, justifyContent:'center', flex:'1 1 0' },
+  dialSide: { fontSize:12, color: B.grayDim, width:32, textAlign:'center', cursor:'pointer', userSelect:'none', padding:'4px 0', borderRadius:6 },
+  dialCenter: { fontSize:16, fontWeight:800, color: B.white, minWidth:44, textAlign:'center', padding:'4px 6px', background: B.navyLight, borderRadius:8, cursor:'pointer' },
+  // Custom mode
+  customGroup: { display:'flex', alignItems:'center', gap:4, justifyContent:'center', flex:'1 1 0' },
+  arrowBtn: { width:28, height:28, borderRadius:'50%', border:`1px solid ${B.navyLight}`, background:'transparent', color: B.teal, fontSize:16, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:0 },
+  customInput: { width:52, textAlign:'center', background: B.navyLight, border:`1px solid ${B.grayDim}`, borderRadius:8, padding:'5px 4px', color: B.white, fontFamily:"'Jost',sans-serif", fontSize:14, fontWeight:700, outline:'none' },
+  // LSI pill
+  lsiRow: { display:'flex', alignItems:'center', justifyContent:'center', margin:'8px 0 4px', gap:4 },
+  lsiPill: (color) => ({ background: color, color:'#fff', padding:'6px 16px', borderRadius:20, fontWeight:800, fontSize:15, textAlign:'center', minWidth:60, flex:'0 0 auto' }),
+  lsiLabel: { fontSize:13, fontWeight:700, color: B.grayMid, textAlign:'center', flex:'1 1 0' },
+  // Separator
+  separator: { height:1, background: B.navyLight, margin:'6px 0' },
+  // Calculate button
+  calcBtn: { display:'block', width:'calc(100% - 24px)', margin:'12px auto 16px', padding:'14px', background:`linear-gradient(90deg, ${B.teal} 0%, ${B.blue} 100%)`, border:'none', borderRadius:30, color:B.white, fontSize:16, fontWeight:700, fontFamily:"'Jost',sans-serif", cursor:'pointer', letterSpacing:0.5 },
+  // Tabs
+  tabBar: { display:'flex', margin:'0 12px', borderRadius:'10px 10px 0 0', overflow:'hidden', background: B.navyLight },
+  tabBtn: (active) => ({ flex:1, padding:'10px 0', textAlign:'center', fontSize:12, fontWeight:active?700:500, color:active?B.teal:B.grayMid, background:active?B.navyMid:'transparent', border:'none', cursor:'pointer', fontFamily:"'Jost',sans-serif", borderBottom:active?`2px solid ${B.teal}`:'2px solid transparent', transition:'all 0.2s' }),
+  tabContent: { background: B.navyMid, margin:'0 12px 16px', borderRadius:'0 0 10px 10px', padding:'14px 12px', border:`1px solid ${B.navyLight}`, borderTop:'none' },
+  // Dosing
+  doseItem: { marginBottom:10, padding:'10px', background: B.navyLight, borderRadius:8 },
+  doseChem: { fontSize:14, fontWeight:700, color: B.teal },
+  doseAmt: { fontSize:20, fontWeight:800, color: B.white },
+  doseReason: { fontSize:11, color: B.grayMid, marginTop:2 },
+  // Info panel
+  infoRow: { display:'flex', alignItems:'flex-start', gap:8, marginBottom:10, padding:'10px', background: B.navyLight, borderRadius:8 },
+  infoDot: (color) => ({ width:14, height:14, borderRadius:'50%', background:color, flexShrink:0, marginTop:3 }),
+  infoText: { fontSize:12, color: B.gray, lineHeight:1.4 },
+  infoLabel: { fontWeight:700, marginBottom:2 },
+  // Startup
+  startupItem: { marginBottom:8, padding:'10px', background: B.navyLight, borderRadius:8 },
+  startupName: { fontSize:13, fontWeight:700, color: B.teal },
+  startupDose: { fontSize:18, fontWeight:800, color: B.white },
+  startupNote: { fontSize:11, color: B.grayMid },
+  // Factor breakdown
+  factorRow: { display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:12, color: B.grayMid },
+  factorVal: { fontWeight:700, color: B.white },
+  noBal: { textAlign:'center', padding:16, color: B.tealDim, fontSize:13 },
+};
+
+// ─── COMPONENTS ────────────────────────────────────────────────────────────
+function DialInput({ value, step, min, max, onChange, decimals=0 }) {
+  const lo = Math.max(min, +(value - step).toFixed(4));
+  const hi = Math.min(max, +(value + step).toFixed(4));
+  const fmt = (v) => decimals > 0 ? v.toFixed(decimals) : String(v);
+  return (
+    <div style={S.dialGroup}>
+      <div style={S.dialSide} onClick={() => onChange(lo)}>{fmt(lo)}</div>
+      <div style={S.dialCenter}>{fmt(value)}</div>
+      <div style={S.dialSide} onClick={() => onChange(hi)}>{fmt(hi)}</div>
+    </div>
+  );
+}
+
+function CustomInput({ value, step, min, max, onChange, decimals=0 }) {
+  const fmt = (v) => decimals > 0 ? v.toFixed(decimals) : String(v);
+  const dec = () => onChange(Math.max(min, +(value - step).toFixed(4)));
+  const inc = () => onChange(Math.min(max, +(value + step).toFixed(4)));
+  const handleChange = (e) => {
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v >= min && v <= max) onChange(+(v.toFixed(decimals > 0 ? decimals : 0)));
+  };
+  return (
+    <div style={S.customGroup}>
+      <button style={S.arrowBtn} onClick={dec}>‹</button>
+      <input style={S.customInput} value={fmt(value)} onChange={handleChange} type="number" inputMode="decimal" />
+      <button style={S.arrowBtn} onClick={inc}>›</button>
+    </div>
+  );
+}
+
+function ParamInput({ mode, value, step, min, max, onChange, decimals }) {
+  return mode === 'dials'
+    ? <DialInput value={value} step={step} min={min} max={max} onChange={onChange} decimals={decimals} />
+    : <CustomInput value={value} step={step} min={min} max={max} onChange={onChange} decimals={decimals} />;
+}
+
+function VolField({ label, value, onChange, unit='ft', step=1 }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:8}}>
+      <div style={{flex:'1 1 0', fontSize:12, fontWeight:600, color:B.teal}}>{label}</div>
+      <input type="number" inputMode="decimal" value={value} step={step}
+        onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) onChange(v); }}
+        style={{width:64, textAlign:'center', background:B.navyLight, border:`1px solid ${B.grayDim}`, borderRadius:8,
+          padding:'6px 8px', color:B.white, fontFamily:"'Jost',sans-serif", fontSize:14, fontWeight:700, outline:'none'}} />
+      <div style={{fontSize:12, color:B.grayMid, width:20}}>{unit}</div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────────
+function SWPChemistryApp() {
+  const [mode, setMode] = useState('dials');
+  const [volume, setVolume] = useState(12500);
+  const [jobName, setJobName] = useState('');
+  const [jobAddr, setJobAddr] = useState('');
+  const [tab, setTab] = useState('dosing');
+  const [calculated, setCalculated] = useState(false);
+
+  // Volume calculator state
+  const [volShape, setVolShape] = useState('rect');
+  const [volInputs, setVolInputs] = useState({ length:30, width:15, radius:15, diamA:20, diamB:15, deepDepth:6, shallowDepth:3.5, avgDepth:5 });
+  const updateVolInput = useCallback((key, val) => setVolInputs(prev => ({ ...prev, [key]: val })), []);
+  const calcVolume = useMemo(() => {
+    const v = volInputs;
+    const GAL = 7.48;
+    if (volShape === 'circle') return +(Math.PI * v.radius * v.radius * v.avgDepth * GAL).toFixed(1);
+    if (volShape === 'oblong') { const avgD = (v.deepDepth + v.shallowDepth) / 2; return +(v.length * ((v.diamA + v.diamB) / 2) * avgD * GAL * 0.9).toFixed(0); }
+    const avgD = (v.deepDepth + v.shallowDepth) / 2;
+    return +(v.length * v.width * avgD * GAL).toFixed(0);
+  }, [volShape, volInputs]);
+
+  // Current values
+  const [current, setCurrent] = useState(() => {
+    const obj = {};
+    [...PARAMS, ...EXTRA_PARAMS].forEach(p => obj[p.key] = p.default);
+    return obj;
+  });
+  // Desired values
+  const [desired, setDesired] = useState(() => {
+    const obj = {};
+    [...PARAMS, ...EXTRA_PARAMS].forEach(p => obj[p.key] = p.default);
+    return obj;
+  });
+
+  const updateCurrent = useCallback((key, val) => setCurrent(prev => ({ ...prev, [key]: val })), []);
+  const updateDesired = useCallback((key, val) => setDesired(prev => ({ ...prev, [key]: val })), []);
+
+  // LSI calculations
+  const currentLSI = useMemo(() => calcLSI(current), [current]);
+  const desiredLSI = useMemo(() => calcLSI(desired), [desired]);
+  const currentMeta = lsiMeta(currentLSI.lsi);
+  const desiredMeta = lsiMeta(desiredLSI.lsi);
+
+  // pH ceiling
+  const currentCeiling = phCeiling(current.ta, current.cya);
+  const desiredCeiling = phCeiling(desired.ta, desired.cya);
+
+  // Dosing
+  const dosing = useMemo(() => {
+    if (!calculated) return [];
+    return calcDosing(current, desired, volume);
+  }, [calculated, current, desired, volume]);
+
+  // Startup
+  const startupRecs = useMemo(() => {
+    const vf = volume / 10000;
+    return [
+      { name:'SC-1000 — Initial Dose', dose:`${(vf*16).toFixed(0)} oz`, note:'Day 1, before or during fill' },
+      { name:'SC-1000 — Weekly Maintenance', dose:`${(vf*4).toFixed(0)} oz/wk`, note:'Weeks 2–4 post startup' },
+      { name:'CE-Clarifier / Enzyme', dose:`${(vf*8).toFixed(0)} oz`, note:'Weekly — phosphates & organics' },
+    ];
+  }, [volume]);
+
+  const handleCalc = () => setCalculated(true);
+
+  // ─── RENDER ────────────────────────────────────────────────────────────
+  return (
+    <div style={S.app}>
+      <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+      {/* HEADER */}
+      <div style={S.header}>
+        <img src={LOGO_SRC} alt="Southwest Pools" style={S.logo} />
+      </div>
+
+      {/* JOB INFO */}
+      <div style={S.jobBar}>
+        <input style={S.jobInput} placeholder="Job Name" value={jobName} onChange={e => setJobName(e.target.value)} />
+        <input style={{...S.jobInput, flex:1.4}} placeholder="Job Address" value={jobAddr} onChange={e => setJobAddr(e.target.value)} />
+      </div>
+
+      {/* MAIN CARD */}
+      <div style={S.card}>
+        {/* Toggle + Volume */}
+        <div style={S.toggleRow}>
+          <div>
+            <div style={{fontSize:10, color:B.grayMid, fontWeight:600, marginBottom:4, textTransform:'uppercase', letterSpacing:0.5}}>Adjustments</div>
+            <div style={S.toggleGroup}>
+              <button style={S.toggleBtn(mode==='dials')} onClick={() => setMode('dials')}>Dials</button>
+              <button style={S.toggleBtn(mode==='custom')} onClick={() => setMode('custom')}>Custom</button>
+            </div>
+          </div>
+          <div style={S.volBox}>
+            <div>
+              <div style={S.volLabel}>Pool Volume</div>
+              <input style={S.volInput} value={volume} onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setVolume(v); }} type="number" />
+            </div>
+          </div>
+        </div>
+
+        {/* Column Headers */}
+        <div style={{display:'flex', marginBottom:4}}>
+          <div style={{...S.colHeader, flex:'1 1 0'}}>Current</div>
+          <div style={{flex:'1 1 0'}} />
+          <div style={{...S.colHeader, flex:'1 1 0'}}>Desired</div>
+        </div>
+
+        {/* LSI Parameters */}
+        {PARAMS.map(p => (
+          <div key={p.key}>
+            <div style={S.paramRow}>
+              <ParamInput mode={mode} value={current[p.key]} step={p.step} min={p.min} max={p.max}
+                onChange={v => updateCurrent(p.key, v)} decimals={p.decimals||0} />
+              <div style={S.paramLabel}>
+                {p.label}
+                {p.showCeiling && (
+                  <div style={S.subLabel}>pH Ceiling<br/>{currentCeiling}</div>
+                )}
+                {p.showCarbAlk && (
+                  <div style={S.subLabel}>{p.subLabel}<br/>{currentLSI.carbAlk}</div>
+                )}
+              </div>
+              <ParamInput mode={mode} value={desired[p.key]} step={p.step} min={p.min} max={p.max}
+                onChange={v => updateDesired(p.key, v)} decimals={p.decimals||0} />
+            </div>
+          </div>
+        ))}
+
+        {/* LSI Row */}
+        <div style={S.lsiRow}>
+          <div style={{flex:'1 1 0', textAlign:'center'}}>
+            <div style={S.lsiPill(currentMeta.bg)}>{currentLSI.lsi.toFixed(2)}</div>
+          </div>
+          <div style={S.lsiLabel}>LSI</div>
+          <div style={{flex:'1 1 0', textAlign:'center'}}>
+            <div style={S.lsiPill(desiredMeta.bg)}>{desiredLSI.lsi.toFixed(2)}</div>
+          </div>
+        </div>
+
+        {/* Separator */}
+        <div style={S.separator} />
+
+        {/* Extra Params (Chlorine, Phosphate) */}
+        {EXTRA_PARAMS.map(p => (
+          <div key={p.key} style={S.paramRow}>
+            <ParamInput mode={mode} value={current[p.key]} step={p.step} min={p.min} max={p.max}
+              onChange={v => updateCurrent(p.key, v)} decimals={p.decimals||0} />
+            <div style={S.paramLabel}>{p.label}</div>
+            <ParamInput mode={mode} value={desired[p.key]} step={p.step} min={p.min} max={p.max}
+              onChange={v => updateDesired(p.key, v)} decimals={p.decimals||0} />
+          </div>
+        ))}
+
+        {/* Calculate */}
+        <button style={S.calcBtn} onClick={handleCalc}>Calculate</button>
+      </div>
+
+      {/* TABS */}
+      <div style={S.tabBar}>
+        <button style={S.tabBtn(tab==='dosing')} onClick={() => setTab('dosing')}>Dosing Plan</button>
+        <button style={S.tabBtn(tab==='startup')} onClick={() => setTab('startup')}>Startup Protocol</button>
+        <button style={S.tabBtn(tab==='factors')} onClick={() => setTab('factors')}>LSI Factors</button>
+        <button style={S.tabBtn(tab==='info')} onClick={() => setTab('info')}>LSI Info</button>
+        <button style={S.tabBtn(tab==='volume')} onClick={() => setTab('volume')}>Volume</button>
+      </div>
+      <div style={S.tabContent}>
+        {/* DOSING TAB */}
+        {tab === 'dosing' && (
+          <>
+            {!calculated && <div style={S.noBal}>Tap "Calculate" to see dosing recommendations</div>}
+            {calculated && dosing.length === 0 && (
+              <div style={{...S.doseItem, textAlign:'center'}}>
+                <div style={{...S.doseChem, color:B.lsiGreen}}>Water is balanced — no additions needed</div>
+              </div>
+            )}
+            {dosing.map((d, i) => (
+              <div key={i} style={S.doseItem}>
+                <div style={S.doseChem}>{d.chem}</div>
+                {d.amount != null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}
+                <div style={S.doseReason}>{d.reason}</div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* STARTUP TAB */}
+        {tab === 'startup' && (
+          <>
+            <div style={{fontSize:12, color:B.grayMid, marginBottom:10}}>Orenda product doses scaled to {volume.toLocaleString()} gal</div>
+            {startupRecs.map((r, i) => (
+              <div key={i} style={S.startupItem}>
+                <div style={S.startupName}>{r.name}</div>
+                <div style={S.startupDose}>{r.dose}</div>
+                <div style={S.startupNote}>{r.note}</div>
+              </div>
+            ))}
+            <div style={{...S.startupItem, border:`1px solid ${B.tealDim}`, background:'transparent'}}>
+              <div style={{...S.startupName, color:B.lsiYellow}}>DFW Note — Phosphates</div>
+              <div style={{fontSize:12, color:B.gray, marginTop:4}}>
+                North Texas tap water often contains 300–600+ ppb phosphates. Test and treat with CV-600/700 or PR-10,000 as needed during fill.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* FACTORS TAB */}
+        {tab === 'factors' && (
+          <>
+            <div style={{fontSize:12, color:B.grayMid, marginBottom:8}}>LSI = pH + TF + CF + AF − 12.1</div>
+            <div style={{display:'flex', gap:12}}>
+              <div style={{flex:1}}>
+                <div style={{...S.colHeader, marginBottom:8}}>Current</div>
+                <div style={S.factorRow}><span>pH</span><span style={S.factorVal}>{current.pH.toFixed(1)}</span></div>
+                <div style={S.factorRow}><span>Temp Factor</span><span style={S.factorVal}>{currentLSI.TF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Calcium Factor</span><span style={S.factorVal}>{currentLSI.CF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Alkalinity Factor</span><span style={S.factorVal}>{currentLSI.AF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Carbonate Alk</span><span style={S.factorVal}>{currentLSI.carbAlk}</span></div>
+                <div style={{...S.factorRow, borderTop:`1px solid ${B.navyLight}`, paddingTop:6, marginTop:4}}>
+                  <span style={{fontWeight:700}}>LSI</span>
+                  <span style={{fontWeight:800, color:currentMeta.color}}>{currentLSI.lsi.toFixed(2)}</span>
+                </div>
+              </div>
+              <div style={{width:1, background:B.navyLight}} />
+              <div style={{flex:1}}>
+                <div style={{...S.colHeader, marginBottom:8}}>Desired</div>
+                <div style={S.factorRow}><span>pH</span><span style={S.factorVal}>{desired.pH.toFixed(1)}</span></div>
+                <div style={S.factorRow}><span>Temp Factor</span><span style={S.factorVal}>{desiredLSI.TF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Calcium Factor</span><span style={S.factorVal}>{desiredLSI.CF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Alkalinity Factor</span><span style={S.factorVal}>{desiredLSI.AF.toFixed(2)}</span></div>
+                <div style={S.factorRow}><span>Carbonate Alk</span><span style={S.factorVal}>{desiredLSI.carbAlk}</span></div>
+                <div style={{...S.factorRow, borderTop:`1px solid ${B.navyLight}`, paddingTop:6, marginTop:4}}>
+                  <span style={{fontWeight:700}}>LSI</span>
+                  <span style={{fontWeight:800, color:desiredMeta.color}}>{desiredLSI.lsi.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* INFO TAB */}
+        {tab === 'info' && (
+          <>
+            <div style={{fontSize:13, fontWeight:700, color:B.white, marginBottom:10}}>LSI Color Guide</div>
+            <div style={S.infoRow}>
+              <div style={S.infoDot(B.lsiPurple)} />
+              <div style={S.infoText}>
+                <div style={S.infoLabel}>Purple — Scale Forming (≥ +0.31)</div>
+                Over-saturated with calcium carbonate. Scale will form on surfaces, equipment, and plumbing. Lower pH or reduce calcium/TA.
+              </div>
+            </div>
+            <div style={S.infoRow}>
+              <div style={S.infoDot(B.lsiGreen)} />
+              <div style={S.infoText}>
+                <div style={S.infoLabel}>Green — Ideal Balance (0.00 to +0.30)</div>
+                Water is happy. Slightly positive LSI protects plaster surfaces. This is the target zone.
+              </div>
+            </div>
+            <div style={S.infoRow}>
+              <div style={S.infoDot(B.lsiYellow)} />
+              <div style={S.infoText}>
+                <div style={S.infoLabel}>Yellow — Acceptable (-0.30 to -0.01)</div>
+                Slightly under-saturated. pH will naturally rise toward green over time. Monitor and adjust if it trends lower.
+              </div>
+            </div>
+            <div style={S.infoRow}>
+              <div style={S.infoDot(B.lsiRed)} />
+              <div style={S.infoText}>
+                <div style={S.infoLabel}>Red — Corrosive (≤ -0.31)</div>
+                Aggressive water — hungry for calcium. Will etch plaster, corrode metal, and damage equipment. Raise calcium, TA, or pH immediately.
+              </div>
+            </div>
+            <div style={{marginTop:12, fontSize:11, color:B.grayDim, lineHeight:1.5}}>
+              The Langelier Saturation Index measures water's tendency to dissolve or deposit calcium carbonate. 
+              LSI = pH + TF + CF + AF − 12.1. Factors are derived from PHTA lookup tables for temperature, calcium hardness, and alkalinity (adjusted for CYA contribution).
+            </div>
+          </>
+        )}
+
+        {/* VOLUME TAB */}
+        {tab === 'volume' && (
+          <>
+            <div style={{fontSize:13, fontWeight:700, color:B.white, marginBottom:10}}>Pool Volume Estimator</div>
+            <div style={{fontSize:11, color:B.grayMid, marginBottom:12}}>Select pool shape, then adjust values to estimate volume.</div>
+
+            {/* Shape selector */}
+            <div style={{display:'flex', gap:6, marginBottom:14}}>
+              {[['circle','Circle'],['oblong','Oblong'],['rect','Rectangle']].map(([k,lbl]) => (
+                <button key={k} onClick={() => setVolShape(k)} style={{
+                  flex:1, padding:'8px 4px', borderRadius:8, border:`1px solid ${volShape===k?B.teal:B.navyLight}`,
+                  background:volShape===k?B.teal:'transparent', color:volShape===k?B.white:B.grayMid,
+                  fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:"'Jost',sans-serif"
+                }}>{lbl}</button>
+              ))}
+            </div>
+
+            {/* Inputs per shape */}
+            <div style={{display:'flex', flexDirection:'column', gap:8}}>
+              {volShape === 'circle' && (
+                <>
+                  <VolField label="Radius (R)" value={volInputs.radius} onChange={v => updateVolInput('radius',v)} unit="ft" />
+                  <VolField label="Avg Depth" value={volInputs.avgDepth} onChange={v => updateVolInput('avgDepth',v)} unit="ft" step={0.5} />
+                </>
+              )}
+              {volShape === 'oblong' && (
+                <>
+                  <VolField label="Length (L)" value={volInputs.length} onChange={v => updateVolInput('length',v)} unit="ft" />
+                  <VolField label="Large Diameter (A)" value={volInputs.diamA} onChange={v => updateVolInput('diamA',v)} unit="ft" />
+                  <VolField label="Small Diameter (B)" value={volInputs.diamB} onChange={v => updateVolInput('diamB',v)} unit="ft" />
+                  <VolField label="Deep Depth" value={volInputs.deepDepth} onChange={v => updateVolInput('deepDepth',v)} unit="ft" step={0.5} />
+                  <VolField label="Shallow Depth" value={volInputs.shallowDepth} onChange={v => updateVolInput('shallowDepth',v)} unit="ft" step={0.5} />
+                </>
+              )}
+              {volShape === 'rect' && (
+                <>
+                  <VolField label="Length (L)" value={volInputs.length} onChange={v => updateVolInput('length',v)} unit="ft" />
+                  <VolField label="Width (W)" value={volInputs.width} onChange={v => updateVolInput('width',v)} unit="ft" />
+                  <VolField label="Deep Depth" value={volInputs.deepDepth} onChange={v => updateVolInput('deepDepth',v)} unit="ft" step={0.5} />
+                  <VolField label="Shallow Depth" value={volInputs.shallowDepth} onChange={v => updateVolInput('shallowDepth',v)} unit="ft" step={0.5} />
+                </>
+              )}
+            </div>
+
+            {/* Result */}
+            <div style={{textAlign:'center', margin:'18px 0 10px'}}>
+              <div style={{fontSize:28, fontWeight:800, color:B.teal}}>{Number(calcVolume).toLocaleString()}</div>
+              <div style={{fontSize:13, color:B.grayMid}}>gallons</div>
+            </div>
+
+            {/* Use button */}
+            <button onClick={() => { setVolume(Math.round(calcVolume)); setTab('dosing'); }}
+              style={{...S.calcBtn, margin:'8px auto 4px', padding:'10px', fontSize:14}}>
+              Use This Volume
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(SWPChemistryApp));
+</script>
+</body>
+</html>
