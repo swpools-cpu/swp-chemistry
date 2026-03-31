@@ -90,13 +90,13 @@ function calcDosing(current, desired, volume) {
     recs.push({ chem:'Muriatic Acid + Aerate', amount:null, unit:'', reason:'TA ' + current.ta + ' is high \u2014 add acid & aerate to degas CO\u2082' });
   }
   if (current.ch < desired.ch - 25) {
-    recs.push({ chem:'Calcium Chloride (77%)', amount:+(((desired.ch - current.ch)/10)*1.226*vf).toFixed(2), unit:'lbs', reason:'Raise CH ' + current.ch + ' \u2192 ' + desired.ch + ' ppm' });
+    recs.push({ chem:'Calcium Chloride (94%)', amount:+(((desired.ch - current.ch)/10)*1.004*vf).toFixed(2), unit:'lbs', reason:'Raise CH ' + current.ch + ' \u2192 ' + desired.ch + ' ppm' });
   }
   if (current.cya < desired.cya - 5) {
     recs.push({ chem:'CYA / Stabilizer', amount:+(((desired.cya - current.cya)/10)*0.833*vf).toFixed(2), unit:'lbs', reason:'Raise CYA ' + current.cya + ' \u2192 ' + desired.cya + ' ppm' });
   }
   if (current.fc < desired.fc - 0.5) {
-    recs.push({ chem:'Liquid Chlorine (10%)', amount:+((desired.fc - current.fc)*12.8*vf).toFixed(1), unit:'fl oz', reason:'Raise FC ' + current.fc.toFixed(1) + ' \u2192 ' + desired.fc.toFixed(1) + ' ppm' });
+    recs.push({ chem:'Cal-Hypo (65-68%)', amount:+((desired.fc - current.fc)*2.07*vf).toFixed(2), unit:'oz', reason:'Raise FC ' + current.fc.toFixed(1) + ' \u2192 ' + desired.fc.toFixed(1) + ' ppm' });
   }
   if (current.tds > 0 && current.tds < desired.tds - 200) {
     recs.push({ chem:'Pool Salt (NaCl)', amount:+(((desired.tds - current.tds)/100)*8.345*vf).toFixed(1), unit:'lbs', reason:'Raise salt ' + current.tds + ' \u2192 ' + desired.tds + ' ppm' });
