@@ -209,8 +209,7 @@ function SWPChemistryApp() {
   var _jn = useState(''), jobName = _jn[0], setJobName = _jn[1];
   var _ja = useState(''), jobAddr = _ja[0], setJobAddr = _ja[1];
   var _tab = useState('dosing'), tab = _tab[0], setTab = _tab[1];
-  var _calc = useState(false), calculated = _calc[0], setCalculated = _calc[1];
-  var _vs = useState('rect'), volShape = _vs[0], setVolShape = _vs[1];
+    var _vs = useState('rect'), volShape = _vs[0], setVolShape = _vs[1];
   var _vi = useState({length:30,width:15,radius:15,diamA:20,diamB:15,deepDepth:6,shallowDepth:3.5,avgDepth:5}), volInputs = _vi[0], setVolInputs = _vi[1];
 
   function initVals() { var o = {}; PARAMS.concat(EXTRA_PARAMS).forEach(function(p){o[p.key]=p.dflt;}); return o; }
@@ -227,7 +226,7 @@ function SWPChemistryApp() {
   var desiredMeta = lsiMeta(desiredLSI.lsi);
   var currentCeiling = phCeiling(current.ta, current.cya);
 
-  var dosing = useMemo(function(){if(!calculated)return[];return calcDosing(current,desired,volume);}, [calculated,current,desired,volume]);
+  var dosing = useMemo(function(){return calcDosing(current,desired,volume);}, [current,desired,volume]);
   var startupRecs = useMemo(function(){var vf=volume/10000;return [
     {name:'SC-1000 \u2014 Initial Dose',dose:(vf*16).toFixed(0)+' oz',note:'Day 1, before or during fill'},
     {name:'SC-1000 \u2014 Weekly Maintenance',dose:(vf*4).toFixed(0)+' oz/wk',note:'Weeks 2\u20134 post startup'},
@@ -292,7 +291,6 @@ function SWPChemistryApp() {
             <ParamInput mode={mode} value={desired[p.key]} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={p.decimals||0} />
           </div>
         );})}
-        <button style={S.calcBtn} onClick={function(){setCalculated(true);}}>Calculate</button>
       </div>
       <div style={S.tabBar}>
         <button style={tabBtnStyle(tab==='dosing')} onClick={function(){setTab('dosing');}}>Dosing</button>
@@ -303,8 +301,7 @@ function SWPChemistryApp() {
       </div>
       <div style={S.tabContent}>
         {tab==='dosing' && <div>
-          {!calculated && <div style={S.noBal}>Tap "Calculate" to see dosing recommendations</div>}
-          {calculated && dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
+          {dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
           {dosing.map(function(d,i){return <div key={i} style={S.doseItem}><div style={S.doseChem}>{d.chem}</div>{d.amount!=null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}<div style={S.doseReason}>{d.reason}</div></div>;})}
         </div>}
         {tab==='startup' && <div>
