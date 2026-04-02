@@ -439,6 +439,7 @@ function SWPChemistryApp() {
     });
     var sanitizerType = current.tds > 0 ? 'Salt' : 'Chlorine';
     var payload = {
+      jnid: selectedJob.jnid,
       jobName: selectedJob.name,
       noteBody: noteBody,
       poolVolume: volume,
