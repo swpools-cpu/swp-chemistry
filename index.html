@@ -437,13 +437,16 @@ function SWPChemistryApp() {
       notes: notes,
       volume: volume
     });
-    var sanitizerType = current.tds > 0 ? 'Salt' : 'Chlorine';
+    var activityJson = JSON.stringify({
+      type: 'activity',
+      record_type_name: 'Chemical Readings',
+      primary: {id: selectedJob.jnid, type: 'job'},
+      note: noteBody
+    });
     var payload = {
+      activityJson: activityJson,
       jnid: selectedJob.jnid,
-      jobName: selectedJob.name,
-      noteBody: JSON.stringify(noteBody).slice(1, -1),
       poolVolume: volume,
-      sanitizerType: sanitizerType,
       updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes'
     };
     fetch(WEBHOOK_SAVE, {
