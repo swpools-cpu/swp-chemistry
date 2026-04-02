@@ -49,15 +49,54 @@ var ACCEPTABLE_RANGES = {
   tds:  {min:2700,max:3400}
 };
 
-var MOCK_JOBS = [
-  {name:'Rusty and Sharon Barnett', address:'123 Oak Lane, Southlake, TX', jnid:'mock_001'},
-  {name:'Rusty and Sharon Barnett - Service', address:'123 Oak Lane, Southlake, TX', jnid:'mock_002'},
-  {name:'Johnson Family', address:'456 Elm St, Keller, TX', jnid:'mock_003'},
-  {name:'Smith New Construction', address:'789 Pine Dr, Fort Worth, TX', jnid:'mock_004'},
-  {name:'Automation Testing', address:'1572 Test Ave, Carrollton, TX', jnid:'mmxhxzhjs69grlsfbsn4mce'},
-];
+var WEBHOOK_JOB_LIST = 'https://hook.us2.make.com/y8d2pwe4uj6js1twstl3onp4234hewnq';
+var WEBHOOK_SAVE = 'https://hook.us2.make.com/d1krqwb23q69ciqghsrqx0ks9ctchlsl';
 
 var TECH_NAMES = ['Gary', 'Matt', 'Christie', 'Corey'];
+
+function buildNoteBody(opts) {
+  var now = new Date();
+  var dateStr = (now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear()+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  var jobTypes = {nc:'New Construction',remodel:'Remodel',service:'Service',startup:'Startup'};
+  var lines = [];
+  lines.push('=== SWP Chemistry Report ===');
+  lines.push('Date: '+dateStr);
+  if (opts.techName) lines.push('Tech: '+opts.techName);
+  if (opts.jobContext) lines.push('Job Type: '+(jobTypes[opts.jobContext]||opts.jobContext));
+  lines.push('');
+  lines.push('-- Current Readings --');
+  var allParams = opts.params.concat(opts.extraParams);
+  allParams.forEach(function(p){
+    var val = opts.current[p.key];
+    var d = p.decimals || 0;
+    var display = d > 0 ? val.toFixed(d) : String(val);
+    var flag = opts.getFlag(p.key, val);
+    var flagStr = flag === 'ok' ? ' [OK]' : flag === 'high' ? ' [HIGH]' : flag === 'low' ? ' [LOW]' : '';
+    lines.push(p.label+': '+display+flagStr);
+  });
+  lines.push('');
+  lines.push('Carb Alk: '+opts.carbAlk);
+  lines.push('pH Ceiling: '+opts.phCeiling);
+  lines.push('LSI: '+(opts.lsi >= 0 ? '+' : '')+opts.lsi.toFixed(2)+' ('+opts.lsiLabel+')');
+  lines.push('');
+  if (opts.dosing.length > 0) {
+    lines.push('-- Dosing Recommendations --');
+    opts.dosing.forEach(function(d){
+      var amtStr = d.amount != null ? d.amount+' '+d.unit+' -- ' : '';
+      lines.push('- '+d.chem+': '+amtStr+d.reason);
+    });
+    lines.push('');
+  }
+  lines.push('-- Field Report --');
+  if (opts.chemsAdded) lines.push('Chemicals Added: '+opts.chemsAdded);
+  lines.push('Backwashed: '+(opts.backwashed ? 'Yes' : 'No'));
+  if (opts.filterType) lines.push('Filter Type: '+opts.filterType);
+  if (opts.psiVal) lines.push('PSI: '+opts.psiVal);
+  if (opts.notes) lines.push('Notes: '+opts.notes);
+  lines.push('');
+  lines.push('Pool Volume: '+opts.volume.toLocaleString()+' gal');
+  return lines.join('\n');
+}
 
 function getFlag(key, value) {
   var range = ACCEPTABLE_RANGES[key];
@@ -292,6 +331,13 @@ function SWPChemistryApp() {
   var _js = useState(''), jobSearch = _js[0], setJobSearch = _js[1];
   var _sj = useState(null), selectedJob = _sj[0], setSelectedJob = _sj[1];
   var _sd = useState(false), showDropdown = _sd[0], setShowDropdown = _sd[1];
+  var _jl = useState([]), jobs = _jl[0], setJobs = _jl[1];
+  var _jlo = useState(false), jobsLoading = _jlo[0], setJobsLoading = _jlo[1];
+  var _jle = useState(null), jobsError = _jle[0], setJobsError = _jle[1];
+
+  // Save state
+  var _sv = useState(false), saving = _sv[0], setSaving = _sv[1];
+  var _sr = useState(null), saveResult = _sr[0], setSaveResult = _sr[1];
 
   // Field report state
   // Tech name state with localStorage persistence
@@ -342,8 +388,77 @@ function SWPChemistryApp() {
   var jobResults = useMemo(function(){
     if (jobSearch.length < 2) return [];
     var q = jobSearch.toLowerCase();
-    return MOCK_JOBS.filter(function(j){ return j.name.toLowerCase().indexOf(q) >= 0; });
-  }, [jobSearch]);
+    return jobs.filter(function(j){ return j.name.toLowerCase().indexOf(q) >= 0; });
+  }, [jobSearch, jobs]);
+
+  // Fetch jobs from JN via Make.com webhook
+  function loadJobs() {
+    setJobsLoading(true);
+    setJobsError(null);
+    fetch(WEBHOOK_JOB_LIST)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var results = data.results || data || [];
+        var mapped = results.map(function(j){
+          var addr = [j.address_line1, j.city, j.state_text].filter(Boolean).join(', ');
+          return { name: j.name || j.display_name || '', address: addr, jnid: j.jnid || '' };
+        }).filter(function(j){ return j.name && j.jnid; });
+        setJobs(mapped);
+        setJobsLoading(false);
+      })
+      .catch(function(err){
+        setJobsError('Failed to load jobs');
+        setJobsLoading(false);
+      });
+  }
+  useEffect(function(){ loadJobs(); }, []);
+
+  // Save to JN handler
+  function handleSave() {
+    if (!selectedJob || !techName) return;
+    setSaving(true);
+    setSaveResult(null);
+    var noteBody = buildNoteBody({
+      techName: techName,
+      jobContext: jobContext,
+      current: current,
+      params: PARAMS,
+      extraParams: EXTRA_PARAMS,
+      getFlag: getFlag,
+      carbAlk: currentLSI.carbAlk,
+      phCeiling: currentCeiling,
+      lsi: currentLSI.lsi,
+      lsiLabel: currentMeta.label,
+      dosing: dosing,
+      chemsAdded: chemsAdded,
+      backwashed: backwashed,
+      filterType: filterType,
+      psiVal: psiVal,
+      notes: notes,
+      volume: volume
+    });
+    var sanitizerType = current.tds > 0 ? 'Salt' : 'Chlorine';
+    var payload = {
+      jobName: selectedJob.name,
+      noteBody: noteBody,
+      poolVolume: volume,
+      sanitizerType: sanitizerType
+    };
+    fetch(WEBHOOK_SAVE, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    })
+    .then(function(r){
+      if (r.ok) { setSaveResult('success'); }
+      else { setSaveResult('error'); }
+      setSaving(false);
+    })
+    .catch(function(){
+      setSaveResult('error');
+      setSaving(false);
+    });
+  }
 
   function handleVolumeChange(e) {
     setVolumeStr(e.target.value);
@@ -372,32 +487,42 @@ function SWPChemistryApp() {
             <div style={S.jobConfirmed}>
               <div style={S.jobConfirmedName}>{selectedJob.name}</div>
               <div style={S.jobConfirmedAddr}>{selectedJob.address}</div>
-              <button style={S.jobClearBtn} onClick={function(){setSelectedJob(null);setJobSearch('');}}>Change Job</button>
+              <button style={S.jobClearBtn} onClick={function(){setSelectedJob(null);setJobSearch('');setSaveResult(null);}}>Change Job</button>
             </div>
           </div>
         ) : (
-          <div style={S.jobSearchWrap}>
-            <input style={S.fieldInput} placeholder="Search job name (type 2+ chars)..." value={jobSearch}
-              onChange={function(e){setJobSearch(e.target.value);setShowDropdown(true);}}
-              onFocus={function(){if(jobSearch.length>=2)setShowDropdown(true);}}
-              onBlur={function(){setTimeout(function(){setShowDropdown(false);},200);}}
-            />
-            {showDropdown && jobResults.length > 0 && (
-              <div style={S.jobDropdown}>
-                {jobResults.map(function(j,i){
-                  return <div key={i} style={Object.assign({},S.jobDropdownItem,{borderBottom:i<jobResults.length-1?'1px solid '+B.navy:'none'})}
-                    onMouseDown={function(e){e.preventDefault();}}
-                    onClick={function(){setSelectedJob(j);setShowDropdown(false);setJobSearch('');}}
-                  >
-                    <div style={{fontWeight:700,color:B.white}}>{j.name}</div>
-                    <div style={{fontSize:11,color:B.grayMid,marginTop:2}}>{j.address}</div>
-                  </div>;
-                })}
-              </div>
-            )}
-            {showDropdown && jobSearch.length >= 2 && jobResults.length === 0 && (
-              <div style={S.jobDropdown}>
-                <div style={Object.assign({},S.jobDropdownItem,{color:B.grayDim,fontStyle:'italic'})}>No matching jobs found</div>
+          <div>
+            {jobsLoading && <div style={{textAlign:'center',padding:'10px 0',fontSize:12,color:B.teal}}>Loading jobs from JN...</div>}
+            {jobsError && <div style={{textAlign:'center',padding:'8px 0'}}><span style={{fontSize:12,color:B.flagRed}}>{jobsError}</span> <button style={Object.assign({},S.jobClearBtn,{color:B.teal})} onClick={loadJobs}>Retry</button></div>}
+            {!jobsLoading && !jobsError && (
+              <div style={S.jobSearchWrap}>
+                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                  <input style={Object.assign({},S.fieldInput,{flex:1})} placeholder={'Search '+jobs.length+' jobs by name...'} value={jobSearch}
+                    onChange={function(e){setJobSearch(e.target.value);setShowDropdown(true);}}
+                    onFocus={function(){if(jobSearch.length>=2)setShowDropdown(true);}}
+                    onBlur={function(){setTimeout(function(){setShowDropdown(false);},200);}}
+                  />
+                  <button onClick={loadJobs} title="Refresh jobs" style={{background:'transparent',border:'1px solid '+B.navyLight,borderRadius:8,padding:'8px 10px',color:B.teal,cursor:'pointer',fontSize:14,lineHeight:1}}>{'\u21bb'}</button>
+                </div>
+                {showDropdown && jobResults.length > 0 && (
+                  <div style={S.jobDropdown}>
+                    {jobResults.slice(0,20).map(function(j,i){
+                      return <div key={i} style={Object.assign({},S.jobDropdownItem,{borderBottom:i<Math.min(jobResults.length,20)-1?'1px solid '+B.navy:'none'})}
+                        onMouseDown={function(e){e.preventDefault();}}
+                        onClick={function(){setSelectedJob(j);setShowDropdown(false);setJobSearch('');}}
+                      >
+                        <div style={{fontWeight:700,color:B.white}}>{j.name}</div>
+                        <div style={{fontSize:11,color:B.grayMid,marginTop:2}}>{j.address}</div>
+                      </div>;
+                    })}
+                    {jobResults.length > 20 && <div style={{padding:'8px 12px',fontSize:11,color:B.grayDim,fontStyle:'italic'}}>Showing 20 of {jobResults.length} results — type more to narrow</div>}
+                  </div>
+                )}
+                {showDropdown && jobSearch.length >= 2 && jobResults.length === 0 && (
+                  <div style={S.jobDropdown}>
+                    <div style={Object.assign({},S.jobDropdownItem,{color:B.grayDim,fontStyle:'italic'})}>No matching jobs found</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -586,8 +711,22 @@ function SWPChemistryApp() {
         </div>
       </div>
 
-      {/* SAVE BUTTON (placeholder) */}
-      <button style={S.disabledBtn} disabled>Save to JN {'\u2014'} Coming Soon</button>
+      {/* SAVE BUTTON */}
+      {saveResult === 'success' ? (
+        <div style={{textAlign:'center',margin:'12px auto 8px'}}>
+          <div style={{color:B.flagGreen,fontSize:18,fontWeight:700}}>Saved to JN</div>
+          <div style={{fontSize:12,color:B.grayMid,marginTop:4}}>Chemistry report created for {selectedJob ? selectedJob.name : ''}</div>
+        </div>
+      ) : (
+        <button
+          style={(!selectedJob || !techName || saving) ? S.disabledBtn : S.calcBtn}
+          disabled={!selectedJob || !techName || saving}
+          onClick={handleSave}
+        >
+          {saving ? 'Saving...' : !selectedJob ? 'Select a Job to Save' : !techName ? 'Select a Tech to Save' : 'Save to JN'}
+        </button>
+      )}
+      {saveResult === 'error' && <div style={{textAlign:'center',fontSize:12,color:B.flagRed,marginBottom:8}}>Save failed — check connection and try again</div>}
 
       <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.4</div>
     </div>
