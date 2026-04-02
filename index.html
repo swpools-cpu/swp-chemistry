@@ -410,7 +410,7 @@ function SWPChemistryApp() {
         var results = data.results || data || [];
         var mapped = results.map(function(j){
           var addr = [j.address_line1, j.city, j.state_text].filter(Boolean).join(', ');
-          return { name: j.name || j.display_name || '', address: addr, jnid: j.jnid || '', poolGallons: parseInt(j['Pool Gallons']) || 0 };
+          return { name: j.name || j.display_name || '', address: addr, jnid: j.jnid || '', poolGallons: parseInt(j['Pool Gallons ']) || 0 };
         }).filter(function(j){ return j.name && j.jnid; });
         setJobs(mapped);
         setJobsLoading(false);
