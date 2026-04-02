@@ -50,7 +50,7 @@ var ACCEPTABLE_RANGES = {
 };
 
 var WEBHOOK_JOB_LIST = 'https://hook.us2.make.com/y8d2pwe4uj6js1twstl3onp4234hewnq';
-var WEBHOOK_SAVE = 'https://hook.us2.make.com/d1krqwb23q69ciqghsrqx0ks9ctchlsl';
+var WEBHOOK_SAVE = 'https://hook.us2.make.com/garool5dbkn17lelv4gvwbpdw4fbcwb0';
 
 var TECH_NAMES = ['Gary', 'Matt', 'Christie', 'Corey'];
 
@@ -428,17 +428,9 @@ function SWPChemistryApp() {
     setSaving(true);
     setSaveResult(null);
     var simpleNote = 'Chemistry test by ' + techName + ' - pH ' + current.pH.toFixed(1) + ' TA ' + current.ta + ' CH ' + current.ch + ' Vol ' + volume;
-    var activityJson = JSON.stringify({
-      type: 'activity',
-      record_type_name: 'Chemical Readings',
-      primary: {id: selectedJob.jnid, type: 'job'},
-      note: simpleNote
-    });
     var payload = {
-      activityJson: activityJson,
       jnid: selectedJob.jnid,
-      poolVolume: volume,
-      updatePoolGallons: 'no'
+      note: simpleNote
     };
     fetch(WEBHOOK_SAVE, {
       method: 'POST',
