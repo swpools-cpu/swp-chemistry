@@ -54,6 +54,15 @@ var WEBHOOK_SAVE = 'https://hook.us2.make.com/d1krqwb23q69ciqghsrqx0ks9ctchlsl';
 
 var TECH_NAMES = ['Gary', 'Matt', 'Christie', 'Corey'];
 
+function jsonSafeString(str) {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
 function buildNoteBody(opts) {
   var now = new Date();
   var dateStr = (now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear()+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
@@ -446,6 +455,7 @@ function SWPChemistryApp() {
     var payload = {
       activityJson: activityJson,
       jnid: selectedJob.jnid,
+      noteBody: jsonSafeString(noteBody),
       poolVolume: volume,
       updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes'
     };
