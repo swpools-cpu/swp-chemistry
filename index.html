@@ -427,37 +427,18 @@ function SWPChemistryApp() {
     if (!selectedJob || !techName) return;
     setSaving(true);
     setSaveResult(null);
-    var noteBody = buildNoteBody({
-      techName: techName,
-      jobContext: jobContext,
-      current: current,
-      params: PARAMS,
-      extraParams: EXTRA_PARAMS,
-      getFlag: getFlag,
-      carbAlk: currentLSI.carbAlk,
-      phCeiling: currentCeiling,
-      lsi: currentLSI.lsi,
-      lsiLabel: currentMeta.label,
-      dosing: dosing,
-      chemsAdded: chemsAdded,
-      backwashed: backwashed,
-      filterType: filterType,
-      psiVal: psiVal,
-      notes: notes,
-      volume: volume
-    });
+    var simpleNote = 'Chemistry test by ' + techName + ' - pH ' + current.pH.toFixed(1) + ' TA ' + current.ta + ' CH ' + current.ch + ' Vol ' + volume;
     var activityJson = JSON.stringify({
       type: 'activity',
       record_type_name: 'Chemical Readings',
       primary: {id: selectedJob.jnid, type: 'job'},
-      note: noteBody
+      note: simpleNote
     });
     var payload = {
       activityJson: activityJson,
       jnid: selectedJob.jnid,
-      noteBody: jsonSafeString(noteBody),
       poolVolume: volume,
-      updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes'
+      updatePoolGallons: 'no'
     };
     fetch(WEBHOOK_SAVE, {
       method: 'POST',
