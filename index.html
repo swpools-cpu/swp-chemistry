@@ -520,6 +520,7 @@ function SWPChemistryApp() {
   // Save to JN handler
   function handleSave() {
     if (!selectedJob || !techName) return;
+    if (!selectedJob.jnid) { alert('No job ID found \u2014 select a different job and try again.'); return; }
     setSaving(true);
     setSaveResult(null);
     var noteBody = buildNoteBody({
@@ -949,16 +950,13 @@ function SWPChemistryApp() {
       </div>
 
       {/* SAVE BUTTON */}
-      {saveResult === 'success' ? (
+      {saveResult === 'success' && (
         <div style={{textAlign:'center',margin:'12px auto 8px'}}>
           <div style={{color:B.flagGreen,fontSize:18,fontWeight:700}}>Saved to JN</div>
           <div style={{fontSize:12,color:B.grayMid,marginTop:4}}>Chemistry report created for {selectedJob ? selectedJob.name : ''}</div>
-          {/* Share Report Button — appears after successful save */}
-          <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'12px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)',width:'calc(100% - 48px)'})}>
-            Share Report with Homeowner
-          </button>
         </div>
-      ) : (
+      )}
+      {saveResult !== 'success' && (
         <button
           style={(!selectedJob || !techName || saving) ? S.disabledBtn : S.calcBtn}
           disabled={!selectedJob || !techName || saving}
@@ -969,7 +967,12 @@ function SWPChemistryApp() {
       )}
       {saveResult === 'error' && <div style={{textAlign:'center',fontSize:12,color:B.flagRed,marginBottom:8}}>Save failed — check connection and try again</div>}
 
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.5.1</div>
+      {/* Share Report — always available for consultations */}
+      <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
+        Share Report with Homeowner
+      </button>
+
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.5.2</div>
     </div>
   );
 }
