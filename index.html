@@ -543,13 +543,95 @@ function SWPChemistryApp() {
       notes: notes,
       volume: volume
     });
+    // ---- Alert evaluation (v0.5.2) ----
+    // Out-of-range flag sweep: any reading with flag 'low' or 'high' counts as out-of-range.
+    // LSI severe: label is CORROSIVE or SCALE FORMING (LSI outside -0.30 to +0.30).
+    var allParamsForAlert = PARAMS.concat(EXTRA_PARAMS);
+    var flaggedList = [];
+    allParamsForAlert.forEach(function(p){
+      var val = current[p.key];
+      var flag = getFlag(p.key, val, ranges);
+      if (flag === 'low' || flag === 'high') {
+        var d = p.decimals || 0;
+        var display = d > 0 ? val.toFixed(d) : String(val);
+        var label = p.key === 'tds' ? tdsLabel(sanitizerType) : p.label;
+        var range = ranges[p.key];
+        var rangeStr = range ? (range.min + ' - ' + range.max) : '';
+        flaggedList.push({
+          label: label,
+          value: display,
+          flag: flag,
+          range: rangeStr
+        });
+      }
+    });
+    var outOfRange = flaggedList.length > 0;
+    var lsiSevere = (currentMeta.label === 'CORROSIVE' || currentMeta.label === 'SCALE FORMING');
+    var sendAlert = (outOfRange || lsiSevere) ? 'yes' : 'no';
+
+    // Alert reasons array (forward-compat for Phase 2 leak detection)
+    var alertReasonsArr = [];
+    if (outOfRange) alertReasonsArr.push('out_of_range');
+    if (lsiSevere) alertReasonsArr.push('lsi_' + currentMeta.label.toLowerCase().replace(' ', '_'));
+
+    // Human-readable reason string (Make.com just prints this)
+    var displayParts = [];
+    if (outOfRange) displayParts.push('Out of Range');
+    if (lsiSevere) displayParts.push('LSI ' + currentMeta.label.charAt(0) + currentMeta.label.slice(1).toLowerCase());
+    var alertReasonsDisplay = displayParts.join(' + ');
+
+    // Severity: critical when LSI is severe, warning for out-of-range only
+    var severityLevel = lsiSevere ? 'critical' : (outOfRange ? 'warning' : 'none');
+
+    // Pre-built HTML <tr> rows for the email template (keeps IML out of Make.com)
+    var flaggedValuesHtml = flaggedList.map(function(f){
+      var flagTag = f.flag === 'high'
+        ? '<span style="color:#c41e3a;font-weight:700">&#9650; HIGH</span>'
+        : '<span style="color:#c41e3a;font-weight:700">&#9660; LOW</span>';
+      return '<tr>'
+        + '<td style="padding:8px;border:1px solid #e5e5e5;">' + f.label + '</td>'
+        + '<td style="padding:8px;border:1px solid #e5e5e5;">' + f.value + ' ' + flagTag + '</td>'
+        + '<td style="padding:8px;border:1px solid #e5e5e5;">' + f.range + '</td>'
+        + '</tr>';
+    }).join('');
+
+    // Full reading set — sent every save, Phase 2 (leak detection) writes to data store
+    var allReadings = {
+      temp: current.temp,
+      pH: current.pH,
+      ta: current.ta,
+      ch: current.ch,
+      cya: current.cya,
+      tds: current.tds,
+      fc: current.fc,
+      phos: current.phos,
+      carbAlk: currentLSI.carbAlk
+    };
+
+    var jobAddress = (selectedJob && selectedJob.address) ? selectedJob.address : '';
+    var jobName = (selectedJob && selectedJob.name) ? selectedJob.name : '';
+    var readingTimestamp = new Date().toISOString();
+
     var payload = {
       jnid: selectedJob.jnid,
       note: jsonSafeString(noteBody),
       poolVolume: volume,
       updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes',
       sanitizerType: sanitizerType,
-      updateSanitizerType: sanitizerSource === 'manual' ? 'yes' : 'no'
+      updateSanitizerType: sanitizerSource === 'manual' ? 'yes' : 'no',
+      // v0.5.2 alert fields
+      sendAlert: sendAlert,
+      severityLevel: severityLevel,
+      alertReasons: alertReasonsArr.join('|'),
+      alertReasonsDisplay: alertReasonsDisplay,
+      flaggedValuesHtml: flaggedValuesHtml,
+      lsiValue: currentLSI.lsi,
+      lsiStatus: currentMeta.label,
+      techName: techName,
+      jobName: jobName,
+      jobAddress: jobAddress,
+      readingTimestamp: readingTimestamp,
+      allReadings: allReadings
     };
     fetch(WEBHOOK_SAVE, {
       method: 'POST',
