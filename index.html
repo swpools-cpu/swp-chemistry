@@ -120,8 +120,6 @@ function buildNoteBody(opts) {
     lines.push('PSI: '+opts.psiVal+psiFlag);
   }
   if (opts.filterCleanDate) lines.push('Filter Clean Date: '+opts.filterCleanDate);
-  if (opts.cleanFilterPsi) lines.push('Clean Filter PSI: '+opts.cleanFilterPsi);
-  if (opts.notes) lines.push('Notes: '+opts.notes);
   lines.push('');
   lines.push('Pool Volume: '+opts.volume.toLocaleString()+' gal');
   return lines.join('\n');
@@ -386,8 +384,8 @@ function FlagIndicator(props) {
 /* ========== MAIN APP ========== */
 function SWPChemistryApp() {
   var _mode = useState('dials'), mode = _mode[0], setMode = _mode[1];
-  var _vol = useState(12500), volume = _vol[0], setVolume = _vol[1];
-  var _volStr = useState('12500'), volumeStr = _volStr[0], setVolumeStr = _volStr[1];
+  var _vol = useState(0), volume = _vol[0], setVolume = _vol[1];
+  var _volStr = useState('0'), volumeStr = _volStr[0], setVolumeStr = _volStr[1];
   var _tab = useState('dosing'), tab = _tab[0], setTab = _tab[1];
   var _vs = useState('rect'), volShape = _vs[0], setVolShape = _vs[1];
   var _vi = useState({length:30,width:15,radius:15,diamA:20,diamB:15,deepDepth:6,shallowDepth:3.5,avgDepth:5}), volInputs = _vi[0], setVolInputs = _vi[1];
@@ -422,10 +420,9 @@ function SWPChemistryApp() {
   var _jc = useState(''), jobContext = _jc[0], setJobContext = _jc[1];
   var _bw = useState(false), backwashed = _bw[0], setBackwashed = _bw[1];
   var _ft = useState(''), filterType = _ft[0], setFilterType = _ft[1];
+  useEffect(function(){ if (filterType !== 'de') { setBackwashed(false); } }, [filterType]);
   var _ps = useState(''), psiVal = _ps[0], setPsiVal = _ps[1];
   var _fcd = useState(''), filterCleanDate = _fcd[0], setFilterCleanDate = _fcd[1];
-  var _cfp = useState(''), cleanFilterPsi = _cfp[0], setCleanFilterPsi = _cfp[1];
-  var _no = useState(''), notes = _no[0], setNotes = _no[1];
   var _ca = useState(''), chemsAdded = _ca[0], setChemsAdded = _ca[1];
 
   // Dynamic ranges based on sanitizer type
@@ -518,7 +515,6 @@ function SWPChemistryApp() {
     } else {
       setFilterCleanDate('');
     }
-    setCleanFilterPsi('');
     if (job.sanitizerType) {
       setSanitizerType(job.sanitizerType);
       setSanitizerSource('jn');
@@ -535,13 +531,13 @@ function SWPChemistryApp() {
     setSanitizerType('');
     setSanitizerSource('');
     setFilterCleanDate('');
-    setCleanFilterPsi('');
   }
 
   // Save to JN handler
   function handleSave() {
     if (!selectedJob || !techName) return;
     if (!selectedJob.jnid) { alert('No job ID found \u2014 select a different job and try again.'); return; }
+    if (volume <= 0) { alert('Enter pool volume to save'); return; }
     setSaving(true);
     setSaveResult(null);
     var noteBody = buildNoteBody({
@@ -562,8 +558,6 @@ function SWPChemistryApp() {
       filterType: filterType,
       psiVal: psiVal,
       filterCleanDate: filterCleanDate,
-      cleanFilterPsi: cleanFilterPsi,
-      notes: notes,
       volume: volume
     });
     // ---- Alert evaluation (v0.5.2) ----
@@ -656,7 +650,6 @@ function SWPChemistryApp() {
       updateSanitizerType: sanitizerSource === 'manual' ? 'yes' : 'no',
       filterCleanDate: filterCleanEpoch,
       updateFilterClean: updateFilterClean,
-      cleanFilterPsi: cleanFilterPsi,
       // v0.5.2 alert fields
       sendAlert: sendAlert,
       severityLevel: severityLevel,
@@ -745,13 +738,12 @@ function SWPChemistryApp() {
     }
 
     var notesHtml = '';
-    if (chemsAdded || notes || filterType || psiVal || backwashed) {
+    if (chemsAdded || filterType || psiVal || backwashed) {
       notesHtml = '<div style="margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:#03417f;border-bottom:2px solid #238baa;padding-bottom:4px;margin-bottom:10px">Service Notes</div>';
       if (chemsAdded) notesHtml += '<div style="margin-bottom:6px"><span style="font-weight:700;color:#03417f">Chemicals Added:</span> '+chemsAdded+'</div>';
       if (backwashed) notesHtml += '<div style="margin-bottom:6px"><span style="font-weight:700;color:#03417f">Backwashed:</span> Yes</div>';
       if (filterType) notesHtml += '<div style="margin-bottom:6px"><span style="font-weight:700;color:#03417f">Filter Type:</span> '+filterType+'</div>';
       if (psiVal) notesHtml += '<div style="margin-bottom:6px"><span style="font-weight:700;color:#03417f">PSI:</span> '+psiVal+'</div>';
-      if (notes) notesHtml += '<div style="margin-bottom:6px"><span style="font-weight:700;color:#03417f">Notes:</span> '+notes+'</div>';
       notesHtml += '</div>';
     }
 
@@ -771,7 +763,7 @@ function SWPChemistryApp() {
       + '<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
       + '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Jost,sans-serif;background:#fff;color:#222;padding:16px;max-width:440px;margin:0 auto}'
       + ' @media print{body{padding:8px}.no-print-btn{display:none!important}}</style></head><body>'
-      + '<div class="no-print-btn" style="text-align:center;padding:12px 0"><button onclick="window.print()" style="background:linear-gradient(90deg,#238baa,#03417f);color:#fff;border:none;border-radius:24px;padding:12px 28px;font-size:15px;font-weight:700;font-family:Jost,sans-serif;cursor:pointer;letter-spacing:0.5px">Save as PDF / Print</button></div>'
+      + '<div class="no-print-btn" style="text-align:center;padding:12px 0;display:flex;gap:10px;justify-content:center"><button onclick="window.print()" style="background:linear-gradient(90deg,#238baa,#03417f);color:#fff;border:none;border-radius:24px;padding:12px 28px;font-size:15px;font-weight:700;font-family:Jost,sans-serif;cursor:pointer;letter-spacing:0.5px">Save as PDF / Print</button><button onclick="window.close()" style="background:#666;color:#fff;border:none;border-radius:24px;padding:12px 28px;font-size:15px;font-weight:700;font-family:Jost,sans-serif;cursor:pointer;letter-spacing:0.5px">Close</button></div>'
       + '<div style="background:linear-gradient(135deg,#03417f 0%,#238baa 100%);padding:20px;border-radius:12px;text-align:center;margin-bottom:20px">'
       + '<img src="'+LOGO_SRC+'" style="height:50px;margin-bottom:8px;mix-blend-mode:screen" />'
       + '<div style="font-size:18px;font-weight:800;color:#fff">Water Chemistry Report</div>'
@@ -1044,21 +1036,22 @@ function SWPChemistryApp() {
         <textarea style={Object.assign({},S.textArea,{marginBottom:10})} placeholder="List chemicals added and amounts..." value={chemsAdded} onChange={function(e){setChemsAdded(e.target.value);}} rows={3} />
 
         <div style={S.fieldRow}>
-          <div style={S.fieldLabel}>Backwashed</div>
-          <div style={S.togglePill}>
-            <button style={pillBtnStyle(!backwashed)} onClick={function(){setBackwashed(false);}}>No</button>
-            <button style={pillBtnStyle(backwashed)} onClick={function(){setBackwashed(true);}}>Yes</button>
-          </div>
-        </div>
-        <div style={S.fieldRow}>
           <div style={S.fieldLabel}>Filter Type</div>
           <select style={S.fieldSelect} value={filterType} onChange={function(e){setFilterType(e.target.value);}}>
             <option value="">Select...</option>
             <option value="cartridge">Cartridge</option>
-            <option value="sand">Sand</option>
             <option value="de">D.E.</option>
           </select>
         </div>
+        {filterType === 'de' && (
+          <div style={S.fieldRow}>
+            <div style={S.fieldLabel}>Backwashed</div>
+            <div style={S.togglePill}>
+              <button style={pillBtnStyle(!backwashed)} onClick={function(){setBackwashed(false);}}>No</button>
+              <button style={pillBtnStyle(backwashed)} onClick={function(){setBackwashed(true);}}>Yes</button>
+            </div>
+          </div>
+        )}
         <div style={S.fieldRow}>
           <div style={S.fieldLabel}>PSI</div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -1071,14 +1064,6 @@ function SWPChemistryApp() {
         <div style={S.fieldRow}>
           <div style={S.fieldLabel}>Filter Clean Date</div>
           <input style={Object.assign({},S.fieldInput,{width:150,flex:'none'})} type="date" value={filterCleanDate} onChange={function(e){setFilterCleanDate(e.target.value);}} />
-        </div>
-        <div style={S.fieldRow}>
-          <div style={S.fieldLabel}>Clean Filter PSI</div>
-          <input style={Object.assign({},S.fieldInput,{width:80,flex:'none'})} type="number" inputMode="decimal" placeholder="PSI" value={cleanFilterPsi} onChange={function(e){setCleanFilterPsi(e.target.value);}} />
-        </div>
-        <div style={{marginTop:4}}>
-          <div style={Object.assign({},S.fieldLabel,{marginBottom:4})}>Notes</div>
-          <textarea style={S.textArea} placeholder="Additional notes..." value={notes} onChange={function(e){setNotes(e.target.value);}} rows={3} />
         </div>
       </div>
 
@@ -1105,7 +1090,7 @@ function SWPChemistryApp() {
         Share Report with Homeowner
       </button>
 
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.5.3</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.5.4</div>
     </div>
   );
 }
