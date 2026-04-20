@@ -23,6 +23,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -466,6 +467,178 @@ function SWPChemistryApp() {
     setSanitizerSource('');
   }
   // Save to JN handler
+  function buildReportPdf() {
+    if (\!window.jspdf) return '';
+    try {
+      var doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+      var pageW = 612, pageH = 792;
+      var ml = 40, contentW = pageW - 80;
+      var y = 40;
+      // Header box
+      doc.setFillColor(3, 65, 127);
+      doc.roundedRect(ml, y, contentW, 76, 5, 5, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Water Chemistry Report', pageW/2, y+22, {align:'center'});
+      var now = new Date();
+      var dateStr = (now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear();
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(dateStr, pageW/2, y+38, {align:'center'});
+      if (selectedJob) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text((selectedJob.name || '').substring(0,60), pageW/2, y+56, {align:'center'});
+        if (selectedJob.address) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.text(selectedJob.address.substring(0,80), pageW/2, y+70, {align:'center'});
+        }
+      }
+      y += 88;
+      // LSI status bar
+      var lsiColorMap = {'IDEAL':[92,184,92],'ACCEPTABLE':[240,173,78],'CORROSIVE':[217,83,79],'SCALE FORMING':[155,89,182]};
+      var lsiRgb = lsiColorMap[currentMeta.label] || [150,150,150];
+      doc.setFillColor(lsiRgb[0], lsiRgb[1], lsiRgb[2]);
+      doc.roundedRect(ml, y, contentW, 28, 4, 4, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      var lsiSign = currentLSI.lsi >= 0 ? '+' : '';
+      doc.text('LSI: '+lsiSign+currentLSI.lsi.toFixed(2)+'   '+currentMeta.label, pageW/2, y+18, {align:'center'});
+      y += 36;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Carb Alk: '+currentLSI.carbAlk+'  |  pH Ceiling: '+currentCeiling, pageW/2, y, {align:'center'});
+      y += 16;
+      // Readings section header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(3, 65, 127);
+      doc.text('Current Readings', ml, y+12);
+      doc.setDrawColor(35, 139, 170);
+      doc.setLineWidth(1.5);
+      doc.line(ml, y+16, ml+contentW, y+16);
+      y += 22;
+      // Table header row
+      var c1=ml, c2=ml+190, c3=ml+350;
+      doc.setFillColor(240, 244, 248);
+      doc.rect(ml, y, contentW, 20, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(3, 65, 127);
+      doc.text('Parameter', c1+4, y+13);
+      doc.text('Value', c2+4, y+13);
+      doc.text('Status', c3+4, y+13);
+      y += 20;
+      // Readings rows
+      var allParams = PARAMS.concat(EXTRA_PARAMS);
+      allParams.forEach(function(p, i) {
+        var val = current[p.key];
+        var d = p.decimals || 0;
+        var display = d > 0 ? val.toFixed(d) : String(val);
+        var flag = getFlag(p.key, val, ranges);
+        var lbl = p.key === 'tds' ? tdsLabel(sanitizerType) : p.label;
+        var bg = i%2===0 ? [255,255,255] : [249,251,253];
+        doc.setFillColor(bg[0], bg[1], bg[2]);
+        doc.rect(ml, y, contentW, 18, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(40, 40, 40);
+        doc.text(lbl, c1+4, y+12);
+        doc.text(display, c2+4, y+12);
+        if (flag === 'ok') { doc.setTextColor(39,174,96); doc.text('OK', c3+4, y+12); }
+        else if (flag === 'low') { doc.setTextColor(231,76,60); doc.text('LOW', c3+4, y+12); }
+        else if (flag === 'high') { doc.setTextColor(231,76,60); doc.text('HIGH', c3+4, y+12); }
+        else { doc.setTextColor(150,150,150); doc.text('-', c3+4, y+12); }
+        y += 18;
+      });
+      y += 10;
+      // Dosing section
+      if (dosing && dosing.length > 0) {
+        if (y > pageH - 200) { doc.addPage(); y = 40; }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(3, 65, 127);
+        doc.text('Dosing Recommendations', ml, y+12);
+        doc.setDrawColor(35, 139, 170);
+        doc.setLineWidth(1.5);
+        doc.line(ml, y+16, ml+contentW, y+16);
+        y += 22;
+        dosing.forEach(function(d) {
+          if (y > pageH - 100) { doc.addPage(); y = 40; }
+          var boxH = d.amount \!= null ? 50 : 36;
+          doc.setFillColor(240, 244, 248);
+          doc.roundedRect(ml, y, contentW, boxH, 3, 3, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(3, 65, 127);
+          doc.text(d.chem, ml+8, y+14);
+          if (d.amount \!= null) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(13);
+            doc.setTextColor(30, 30, 30);
+            doc.text(String(d.amount)+' '+d.unit, ml+8, y+28);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(100, 100, 100);
+            var rLines = doc.splitTextToSize(d.reason, contentW-16);
+            doc.text(rLines, ml+8, y+42);
+          } else {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(100, 100, 100);
+            var rLines = doc.splitTextToSize(d.reason, contentW-16);
+            doc.text(rLines, ml+8, y+28);
+          }
+          y += boxH + 6;
+        });
+        y += 4;
+      }
+      // Service notes
+      if (chemsAdded) {
+        if (y > pageH - 100) { doc.addPage(); y = 40; }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(3, 65, 127);
+        doc.text('Service Notes', ml, y+12);
+        doc.setDrawColor(35, 139, 170);
+        doc.setLineWidth(1.5);
+        doc.line(ml, y+16, ml+contentW, y+16);
+        y += 24;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(3, 65, 127);
+        doc.text('Chemicals Added:', ml, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(40, 40, 40);
+        var cLines = doc.splitTextToSize(chemsAdded, contentW-112);
+        doc.text(cLines, ml+112, y);
+        y += Math.max(cLines.length, 1)*13+8;
+      }
+      // Pool volume
+      if (y > pageH - 60) { doc.addPage(); y = 40; }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Pool Volume: '+volume.toLocaleString()+' gallons', pageW/2, y+14, {align:'center'});
+      // Footer
+      doc.setDrawColor(210, 210, 210);
+      doc.setLineWidth(0.5);
+      doc.line(ml, pageH-44, ml+contentW, pageH-44);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text('Southwest Pools LLC  |  swpoolsdfw.com', pageW/2, pageH-30, {align:'center'});
+      doc.text('2081 Hutton Drive Suite 101, Carrollton TX 75006  |  469-328-0155', pageW/2, pageH-18, {align:'center'});
+      return doc.output('datauristring').split(',')[1];
+    } catch(e) {
+      console.error('PDF generation failed:', e);
+      return '';
+    }
+  }
   function handleSave() {
     if (!selectedJob || !techName) return;
     if (!selectedJob.jnid) { alert('No job ID found \u2014 select a different job and try again.'); return; }
@@ -569,7 +742,9 @@ function SWPChemistryApp() {
       jobName: jobName,
       jobAddress: jobAddress,
       readingTimestamp: readingTimestamp,
-      allReadings: allReadings
+      allReadings: allReadings,
+      reportPdf: buildReportPdf(),
+      reportFilename: 'ChemReport_' + jobName.replace(/[^a-zA-Z0-9]/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.pdf'
     };
     fetch(WEBHOOK_SAVE, {
       method: 'POST',
@@ -949,4 +1124,4 @@ var root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(React.createElement(SWPChemistryApp));
 </script>
 </body>
-</html>
+</html>      
