@@ -95,6 +95,19 @@ function buildNoteBody(opts) {
   lines.push('pH Ceiling: '+opts.phCeiling);
   lines.push('LSI: '+(opts.lsi >= 0 ? '+' : '')+opts.lsi.toFixed(2)+' ('+opts.lsiLabel+')');
   lines.push('');
+  lines.push('-- Desired Readings --');
+  allParams.forEach(function(p){
+    var val = opts.desired[p.key];
+    var d = p.decimals || 0;
+    var display = d > 0 ? val.toFixed(d) : String(val);
+    var label = p.key === 'tds' ? (opts.sanitizerType === 'Salt' ? 'Salt Level' : 'TDS') : p.label;
+    lines.push(label+': '+display);
+  });
+  lines.push('');
+  lines.push('Desired Carb Alk: '+opts.desiredCarbAlk);
+  lines.push('Desired pH Ceiling: '+opts.desiredPhCeiling);
+  lines.push('Desired LSI: '+(opts.desiredLsi >= 0 ? '+' : '')+opts.desiredLsi.toFixed(2)+' ('+opts.desiredLsiLabel+')');
+  lines.push('');
   if (opts.dosing.length > 0) {
     lines.push('-- Dosing Recommendations --');
     opts.dosing.forEach(function(d){
@@ -563,6 +576,49 @@ function SWPChemistryApp() {
         y += 18;
       });
       y += 10;
+      // Desired Readings section
+      if (y > pageH - 200) { doc.addPage(); y = 40; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(3, 65, 127);
+      doc.text('Desired Readings', ml, y+12);
+      doc.setDrawColor(35, 139, 170);
+      doc.setLineWidth(1.5);
+      doc.line(ml, y+16, ml+contentW, y+16);
+      y += 22;
+      // Desired table header
+      doc.setFillColor(240, 244, 248);
+      doc.rect(ml, y, contentW, 20, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(3, 65, 127);
+      doc.text('Parameter', c1+4, y+13);
+      doc.text('Desired Value', c2+4, y+13);
+      y += 20;
+      allParams.forEach(function(p, i) {
+        var val = desired[p.key];
+        var d = p.decimals || 0;
+        var display = d > 0 ? val.toFixed(d) : String(val);
+        var lbl = p.key === 'tds' ? tdsLabel(sanitizerType) : p.label;
+        var bg = i%2===0 ? [255,255,255] : [249,251,253];
+        doc.setFillColor(bg[0], bg[1], bg[2]);
+        doc.rect(ml, y, contentW, 18, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(40, 40, 40);
+        doc.text(lbl, c1+4, y+12);
+        doc.text(display, c2+4, y+12);
+        y += 18;
+      });
+      // Desired LSI
+      y += 4;
+      var desLsiSign = desiredLSI.lsi >= 0 ? '+' : '';
+      var desCeil = phCeiling(desired.ta, desired.cya);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Desired LSI: '+desLsiSign+desiredLSI.lsi.toFixed(2)+' ('+desiredMeta.label+')  |  Carb Alk: '+desiredLSI.carbAlk+'  |  pH Ceiling: '+desCeil, pageW/2, y, {align:'center'});
+      y += 16;
       // Dosing section
       if (dosing && dosing.length > 0) {
         if (y > pageH - 200) { doc.addPage(); y = 40; }
@@ -652,11 +708,13 @@ function SWPChemistryApp() {
     if (volume <= 0) { alert('Enter pool volume to save'); return; }
     setSaving(true);
     setSaveResult(null);
+    var desiredCeil = phCeiling(desired.ta, desired.cya);
     var noteBody = buildNoteBody({
       techName: techName,
       jobContext: jobContext,
       sanitizerType: sanitizerType,
       current: current,
+      desired: desired,
       params: PARAMS,
       extraParams: EXTRA_PARAMS,
       getFlag: function(key, val) { return getFlag(key, val, ranges); },
@@ -664,6 +722,10 @@ function SWPChemistryApp() {
       phCeiling: currentCeiling,
       lsi: currentLSI.lsi,
       lsiLabel: currentMeta.label,
+      desiredCarbAlk: desiredLSI.carbAlk,
+      desiredPhCeiling: desiredCeil,
+      desiredLsi: desiredLSI.lsi,
+      desiredLsiLabel: desiredMeta.label,
       dosing: dosing,
       chemsAdded: chemsAdded,
       volume: volume
@@ -808,6 +870,22 @@ function SWPChemistryApp() {
       else flagHtml = '<span style="color:#999">&#8212;</span>';
       return '<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">'+label+'</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:700">'+display+'</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">'+flagHtml+'</td></tr>';
     }).join('');
+    var desiredRows = allParams.map(function(p){
+      var val = desired[p.key];
+      var d = p.decimals || 0;
+      var display = d > 0 ? val.toFixed(d) : String(val);
+      var label = p.key === 'tds' ? tdsLabel(sanitizerType) : p.label;
+      return '<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">'+label+'</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:700">'+display+'</td></tr>';
+    }).join('');
+    var desLsiSign2 = desiredLSI.lsi >= 0 ? '+' : '';
+    var desCeil2 = phCeiling(desired.ta, desired.cya);
+    var desiredMeta2 = lsiMeta(desiredLSI.lsi);
+    var desiredSectionHtml = '<div style="margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:#03417f;border-bottom:2px solid #238baa;padding-bottom:4px;margin-bottom:10px">Desired Readings</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+      + '<th style="text-align:left;padding:6px 8px;background:#f0f4f8;font-weight:700;color:#03417f;border-bottom:1px solid #ddd">Parameter</th>'
+      + '<th style="text-align:center;padding:6px 8px;background:#f0f4f8;font-weight:700;color:#03417f;border-bottom:1px solid #ddd">Desired Value</th>'
+      + '</tr></thead><tbody>'+desiredRows+'</tbody></table>'
+      + '<div style="text-align:center;font-size:11px;color:#999;margin-top:8px">Desired LSI: '+desLsiSign2+desiredLSI.lsi.toFixed(2)+' ('+desiredMeta2.label+') | Carb Alk: '+desiredLSI.carbAlk+' | pH Ceiling: '+desCeil2+'</div></div>';
     var dosingHtml = '';
     if (dosing.length > 0) {
       dosingHtml = '<div style="margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:#03417f;border-bottom:2px solid #238baa;padding-bottom:4px;margin-bottom:10px">Dosing Recommendations</div>';
