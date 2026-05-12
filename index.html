@@ -23,7 +23,37 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" onerror="var fb=document.createElement('script');fb.src='https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js';document.head.appendChild(fb)"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin onerror="var fb=document.createElement('script');fb.src='https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js';document.head.appendChild(fb)"></script>
+<script>
+// Robust jsPDF loader with retry — solves intermittent CDN failures on mobile
+window._jspdfLoading = null;
+window.ensureJsPdf = function() {
+  if (window.jspdf) return Promise.resolve(true);
+  if (window._jspdfLoading) return window._jspdfLoading;
+  var urls = [
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
+  ];
+  window._jspdfLoading = new Promise(function(resolve) {
+    var idx = 0;
+    function tryNext() {
+      if (window.jspdf) { resolve(true); return; }
+      if (idx >= urls.length) { resolve(false); return; }
+      var s = document.createElement('script');
+      s.src = urls[idx++];
+      s.crossOrigin = 'anonymous';
+      s.onload = function() {
+        setTimeout(function() { resolve(!!window.jspdf); }, 50);
+      };
+      s.onerror = function() { tryNext(); };
+      document.head.appendChild(s);
+    }
+    tryNext();
+  }).then(function(ok) { window._jspdfLoading = null; return ok; });
+  return window._jspdfLoading;
+};
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -488,7 +518,7 @@ function SWPChemistryApp() {
   }
   // Save to JN handler
   function buildReportPdf() {
-    if (!window.jspdf) return '';
+    if (!window.jspdf) { console.warn('buildReportPdf: window.jspdf not available'); return ''; }
     try {
       var doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
       var pageW = 612, pageH = 792;
@@ -708,6 +738,13 @@ function SWPChemistryApp() {
     if (volume <= 0) { alert('Enter pool volume to save'); return; }
     setSaving(true);
     setSaveResult(null);
+    // Ensure jsPDF is loaded before building PDF (fixes intermittent CDN failures on mobile)
+    window.ensureJsPdf().then(function(jspdfReady) {
+      if (!jspdfReady) { console.warn('jsPDF could not be loaded from any CDN \u2014 saving without PDF'); }
+      doSave(jspdfReady);
+    });
+  }
+  function doSave(jspdfReady) {
     var desiredCeil = phCeiling(desired.ta, desired.cya);
     var noteBody = buildNoteBody({
       techName: techName,
@@ -1189,7 +1226,7 @@ function SWPChemistryApp() {
           <div style={{fontSize:12,color:B.grayMid,marginTop:4}}>Chemistry report created for {selectedJob ? selectedJob.name : ''}</div>
           {saveResult === 'success_pdf'
             ? <div style={{fontSize:11,color:B.flagGreen,marginTop:3}}>PDF report attached</div>
-            : <div style={{fontSize:11,color:B.flagYellow,marginTop:3}}>Note saved — PDF unavailable (no internet for PDF library)</div>
+            : <div style={{fontSize:11,color:B.flagYellow,marginTop:3}}>Note saved — PDF could not be generated (check internet connection)</div>
           }
         </div>
       )}
