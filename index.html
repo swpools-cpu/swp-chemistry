@@ -854,13 +854,18 @@ function SWPChemistryApp() {
       companyCamProjectId: (selectedJob && selectedJob.companyCamProjectId) ? selectedJob.companyCamProjectId : ''
     };
     var pdfReady = !!payload.reportPdf;
+    var ccLinked = !!payload.companyCamProjectId;
     fetch(WEBHOOK_SAVE, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     })
     .then(function(r){
-      if (r.ok) { setSaveResult(pdfReady ? 'success_pdf' : 'success_nopdf'); }
+      if (r.ok) {
+        if (pdfReady && ccLinked) { setSaveResult('success_pdf'); }
+        else if (pdfReady && !ccLinked) { setSaveResult('success_pdf_nocc'); }
+        else { setSaveResult('success_nopdf'); }
+      }
       else { setSaveResult('error'); }
       setSaving(false);
     })
@@ -1220,17 +1225,19 @@ function SWPChemistryApp() {
         <textarea style={Object.assign({},S.textArea,{marginBottom:10})} placeholder="List chemicals added and amounts..." value={chemsAdded} onChange={function(e){setChemsAdded(e.target.value);}} rows={3} />
       </div>
       {/* SAVE BUTTON */}
-      {(saveResult === 'success_pdf' || saveResult === 'success_nopdf') && (
+      {(saveResult === 'success_pdf' || saveResult === 'success_pdf_nocc' || saveResult === 'success_nopdf') && (
         <div style={{textAlign:'center',margin:'12px auto 8px'}}>
           <div style={{color:B.flagGreen,fontSize:18,fontWeight:700}}>Saved to JN</div>
           <div style={{fontSize:12,color:B.grayMid,marginTop:4}}>Chemistry report created for {selectedJob ? selectedJob.name : ''}</div>
           {saveResult === 'success_pdf'
-            ? <div style={{fontSize:11,color:B.flagGreen,marginTop:3}}>PDF report attached</div>
+            ? <div style={{fontSize:11,color:B.flagGreen,marginTop:3}}>PDF report uploaded to CompanyCam</div>
+            : saveResult === 'success_pdf_nocc'
+            ? <div style={{fontSize:11,color:B.flagYellow,marginTop:3}}>PDF generated — no CompanyCam project linked to this job</div>
             : <div style={{fontSize:11,color:B.flagYellow,marginTop:3}}>Note saved — PDF could not be generated (check internet connection)</div>
           }
         </div>
       )}
-      {saveResult !== 'success_pdf' && saveResult !== 'success_nopdf' && (
+      {saveResult !== 'success_pdf' && saveResult !== 'success_pdf_nocc' && saveResult !== 'success_nopdf' && (
         <button
           style={(!selectedJob || !techName || saving) ? S.disabledBtn : S.calcBtn}
           disabled={!selectedJob || !techName || saving}
@@ -1244,7 +1251,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.6.1{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.6.2{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
