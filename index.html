@@ -458,6 +458,13 @@ function SWPChemistryApp() {
   // Sanitizer type state — auto-populated from JN, with manual override
   var _st = useState(''), sanitizerType = _st[0], setSanitizerType = _st[1];
   var _stSource = useState(''), sanitizerSource = _stSource[0], setSanitizerSource = _stSource[1]; // 'jn' or 'manual'
+  // Filter state — pre-populated from JN on job select
+  var _ft = useState(''), filterType = _ft[0], setFilterType = _ft[1];
+  var _ftSource = useState(''), filterTypeSource = _ftSource[0], setFilterTypeSource = _ftSource[1]; // 'jn' or 'manual'
+  var _lastClean = useState(''), lastFilterClean = _lastClean[0], setLastFilterClean = _lastClean[1];
+  var _fcd = useState(false), filterCleanDone = _fcd[0], setFilterCleanDone = _fcd[1];
+  var _fbw = useState(false), filterBackwash = _fbw[0], setFilterBackwash = _fbw[1];
+  var _deAmt = useState(''), deAmount = _deAmt[0], setDeAmount = _deAmt[1];
   // Save state
   var _sv = useState(false), saving = _sv[0], setSaving = _sv[1];
   var _sr = useState(null), saveResult = _sr[0], setSaveResult = _sr[1];
@@ -538,6 +545,8 @@ function SWPChemistryApp() {
             jnid: j.jnid || '',
             poolGallons: parseInt(j['Pool Gallons']) || 0,
             sanitizerType: j['Sanitizer Type'] || '',
+            filterType: j['Filter Type'] || '',
+            filterClean: j['Filter Clean'] || '',
             recordTypeName: j.record_type_name || '',
             companyCamProjectId: companyCamProjectId,
           };
@@ -565,6 +574,18 @@ function SWPChemistryApp() {
       setSanitizerType('');
       setSanitizerSource('');
     }
+    // Pre-fill filter info from JN
+    if (job.filterType) {
+      setFilterType(job.filterType);
+      setFilterTypeSource('jn');
+    } else {
+      setFilterType('');
+      setFilterTypeSource('');
+    }
+    setLastFilterClean(job.filterClean || '');
+    setFilterCleanDone(false);
+    setFilterBackwash(false);
+    setDeAmount('');
   }
   function handleJobClear() {
     setSelectedJob(null);
@@ -572,6 +593,12 @@ function SWPChemistryApp() {
     setSaveResult(null);
     setSanitizerType('');
     setSanitizerSource('');
+    setFilterType('');
+    setFilterTypeSource('');
+    setLastFilterClean('');
+    setFilterCleanDone(false);
+    setFilterBackwash(false);
+    setDeAmount('');
   }
   // Save to JN handler
   function buildReportPdf() {
@@ -789,6 +816,26 @@ function SWPChemistryApp() {
       return '';
     }
   }
+  function buildFilterNote() {
+    var now = new Date();
+    var dateStr = (now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear()+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    var lines = [];
+    lines.push('=== Filter Service Report ===');
+    lines.push('Date: '+dateStr);
+    if (techName) lines.push('Tech: '+techName);
+    lines.push('Filter Type: '+filterType);
+    lines.push('');
+    var actions = [];
+    if (filterCleanDone) actions.push('Filter Clean');
+    if (filterBackwash) actions.push('Backwash');
+    lines.push('Service Performed: '+actions.join(' + '));
+    if (filterType === 'DE' && deAmount) {
+      lines.push('DE Added: '+deAmount+' lbs');
+    }
+    lines.push('');
+    lines.push('Pool Volume: '+volume.toLocaleString()+' gal');
+    return lines.join('\n');
+  }
   function handleSave() {
     if (!selectedJob || !techName) return;
     if (!selectedJob.jnid) { alert('No job ID found \u2014 select a different job and try again.'); return; }
@@ -908,7 +955,14 @@ function SWPChemistryApp() {
       allReadings: allReadings,
       reportPdf: buildReportPdf(),
       reportFilename: 'ChemReport_' + jobName.replace(/[^a-zA-Z0-9]/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.pdf',
-      companyCamProjectId: (selectedJob && selectedJob.companyCamProjectId) ? selectedJob.companyCamProjectId : ''
+      companyCamProjectId: (selectedJob && selectedJob.companyCamProjectId) ? selectedJob.companyCamProjectId : '',
+      // Filter service fields (v0.8.0)
+      filterType: filterType,
+      updateFilterType: filterTypeSource === 'manual' ? 'yes' : 'no',
+      filterCleanDone: filterCleanDone ? 'yes' : 'no',
+      filterBackwash: filterBackwash ? 'yes' : 'no',
+      deAmount: (filterType === 'DE' && (filterCleanDone || filterBackwash) && deAmount) ? deAmount : '',
+      filterNoteBody: (filterCleanDone || filterBackwash) ? jsonSafeString(buildFilterNote()) : ''
     };
     var pdfReady = !!payload.reportPdf;
     var ccLinked = !!payload.companyCamProjectId;
@@ -1304,6 +1358,70 @@ function SWPChemistryApp() {
         </div>
         <textarea style={Object.assign({},S.textArea,{marginBottom:10})} placeholder="List chemicals added and amounts..." value={chemsAdded} onChange={function(e){setChemsAdded(e.target.value);}} rows={3} />
       </div>
+      {/* FILTER SERVICE SECTION */}
+      {selectedJob && (
+        <div style={S.sectionCard}>
+          <div style={S.sectionTitle}>Filter Service</div>
+          {/* Filter Type */}
+          <div style={S.fieldRow}>
+            <div style={S.fieldLabel}>Filter Type</div>
+            {filterType ? (
+              <div style={{flex:1,display:'flex',alignItems:'center',gap:8}}>
+                <div style={{flex:1,fontSize:14,fontWeight:700,color:B.white}}>
+                  {filterType}
+                  {filterTypeSource === 'jn' && <span style={{fontSize:9,opacity:0.5,marginLeft:6}}>(from JN)</span>}
+                </div>
+                <button style={{background:'transparent',border:'1px solid '+B.navyLight,borderRadius:8,padding:'4px 10px',color:B.teal,cursor:'pointer',fontSize:11,fontFamily:"'Jost',sans-serif"}} onClick={function(){setFilterType('');setFilterTypeSource('manual');}}>Change</button>
+              </div>
+            ) : (
+              <select style={S.fieldSelect} value={filterType} onChange={function(e){setFilterType(e.target.value);setFilterTypeSource('manual');}}>
+                <option value="">Select...</option>
+                <option value="Cartridge">Cartridge</option>
+                <option value="DE">DE</option>
+                <option value="Sand">Sand</option>
+              </select>
+            )}
+          </div>
+          {/* Last Filter Clean date from JN */}
+          {lastFilterClean && (
+            <div style={{fontSize:11,color:B.grayMid,marginBottom:8,paddingLeft:2}}>
+              Last Clean: <span style={{color:B.teal,fontWeight:600}}>{new Date(lastFilterClean).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>
+            </div>
+          )}
+          {/* Filter Clean checkbox */}
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'10px 12px',background:filterCleanDone?B.teal+'20':B.navyLight,borderRadius:8,border:filterCleanDone?'1px solid '+B.teal:'1px solid transparent',cursor:'pointer'}} onClick={function(){setFilterCleanDone(!filterCleanDone);if(filterCleanDone){setFilterBackwash(false);setDeAmount('');}}}>
+            <div style={{width:22,height:22,borderRadius:6,border:'2px solid '+(filterCleanDone?B.teal:B.grayDim),background:filterCleanDone?B.teal:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              {filterCleanDone && <span style={{color:B.white,fontSize:14,fontWeight:800}}>{'✓'}</span>}
+            </div>
+            <div>
+              <div style={{fontSize:14,fontWeight:600,color:B.white}}>Filter Clean</div>
+              <div style={{fontSize:11,color:B.grayMid}}>Mark filter as cleaned today</div>
+            </div>
+          </div>
+          {/* Backwash option — DE filters only */}
+          {filterType === 'DE' && (
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'10px 12px',background:filterBackwash?B.teal+'20':B.navyLight,borderRadius:8,border:filterBackwash?'1px solid '+B.teal:'1px solid transparent',cursor:'pointer'}} onClick={function(){setFilterBackwash(!filterBackwash);}}>
+              <div style={{width:22,height:22,borderRadius:6,border:'2px solid '+(filterBackwash?B.teal:B.grayDim),background:filterBackwash?B.teal:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                {filterBackwash && <span style={{color:B.white,fontSize:14,fontWeight:800}}>{'✓'}</span>}
+              </div>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:B.white}}>Backwash</div>
+                <div style={{fontSize:11,color:B.grayMid}}>DE filter backwash performed</div>
+              </div>
+            </div>
+          )}
+          {/* DE Amount — shown when DE filter and clean or backwash checked */}
+          {filterType === 'DE' && (filterCleanDone || filterBackwash) && (
+            <div style={S.fieldRow}>
+              <div style={S.fieldLabel}>DE Added</div>
+              <div style={{flex:1,display:'flex',alignItems:'center',gap:6}}>
+                <input style={Object.assign({},S.fieldInput,{width:80,flex:'0 0 auto',textAlign:'center'})} type="number" inputMode="decimal" placeholder="0" value={deAmount} onChange={function(e){setDeAmount(e.target.value);}} />
+                <span style={{fontSize:12,color:B.grayMid}}>lbs</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {/* SAVE BUTTON */}
       {(saveResult === 'success_pdf' || saveResult === 'success_pdf_nocc' || saveResult === 'success_nopdf') && (
         <div style={{textAlign:'center',margin:'12px auto 8px'}}>
@@ -1331,7 +1449,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.7.0{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.8.0{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
