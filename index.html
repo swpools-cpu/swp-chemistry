@@ -962,7 +962,8 @@ function SWPChemistryApp() {
       filterCleanDone: filterCleanDone ? 'yes' : 'no',
       filterBackwash: filterBackwash ? 'yes' : 'no',
       deAmount: (filterType === 'DE' && (filterCleanDone || filterBackwash) && deAmount) ? deAmount : '',
-      filterNoteBody: (filterCleanDone || filterBackwash) ? jsonSafeString(buildFilterNote()) : ''
+      filterNoteBody: (filterCleanDone || filterBackwash) ? jsonSafeString(buildFilterNote()) : '',
+      filterCleanEpoch: (filterCleanDone || filterBackwash) ? Math.floor(Date.now()/1000) : ''
     };
     var pdfReady = !!payload.reportPdf;
     var ccLinked = !!payload.companyCamProjectId;
