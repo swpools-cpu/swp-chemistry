@@ -101,12 +101,13 @@ function jsonSafeString(str) {
 function buildNoteBody(opts) {
   var now = new Date();
   var dateStr = (now.getMonth()+1)+'/'+now.getDate()+'/'+now.getFullYear()+' '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  var jobTypes = {nc:'New Construction',remodel:'Remodel',service:'Service',startup:'Startup'};
+  var jobTypes = {service:'Service',startup:'Startup',other:'Other'};
   var lines = [];
   lines.push('=== SWP Chemistry Report ===');
   lines.push('Date: '+dateStr);
   if (opts.techName) lines.push('Tech: '+opts.techName);
   if (opts.jobContext) lines.push('Job Type: '+(jobTypes[opts.jobContext]||opts.jobContext));
+  if (opts.waterSource) lines.push('Water Source: '+(opts.waterSource === 'source' ? 'Source Water' : 'Pool Water'));
   if (opts.sanitizerType) lines.push('Sanitizer: '+opts.sanitizerType);
   lines.push('');
   lines.push('-- Current Readings --');
@@ -479,6 +480,7 @@ function SWPChemistryApp() {
   var _tc = useState(savedCustom), techCustom = _tc[0], setTechCustom = _tc[1];
   var techName = techSelect === 'other' ? techCustom : techSelect;
   var _jc = useState(''), jobContext = _jc[0], setJobContext = _jc[1];
+  var _ws2 = useState('pool'), waterSource = _ws2[0], setWaterSource = _ws2[1];
   var _ca = useState(''), chemsAdded = _ca[0], setChemsAdded = _ca[1];
   // Dynamic ranges based on sanitizer type
   var ranges = useMemo(function(){ return getRanges(sanitizerType); }, [sanitizerType]);
@@ -495,12 +497,19 @@ function SWPChemistryApp() {
       updateDesired('tds', 3200);
     }
   }, [sanitizerType]);
+  // Buffer logic: only Service/Other + Pool Water gets weekly buffer
+  var useBuffer = waterSource !== 'source' && jobContext !== 'startup';
   // Auto-LSI: recalculate desired readings when current values or sanitizer change
   useEffect(function(){
     if (desiredMode === 'auto') {
-      setDesired(calcAutoDesired(current, sanitizerType));
+      if (useBuffer) {
+        setDesired(calcAutoDesired(current, sanitizerType));
+      } else {
+        // Mirror current readings for startup or source water
+        setDesired(Object.assign({}, current));
+      }
     }
-  }, [desiredMode, current, sanitizerType]);
+  }, [desiredMode, current, sanitizerType, useBuffer]);
   var currentLSI = useMemo(function(){return calcLSI(current);}, [current]);
   var desiredLSI = useMemo(function(){return calcLSI(desired);}, [desired]);
   var currentMeta = lsiMeta(currentLSI.lsi);
@@ -853,6 +862,7 @@ function SWPChemistryApp() {
     var noteBody = buildNoteBody({
       techName: techName,
       jobContext: jobContext,
+      waterSource: waterSource,
       sanitizerType: sanitizerType,
       current: current,
       desired: desired,
@@ -895,7 +905,10 @@ function SWPChemistryApp() {
     });
     var outOfRange = flaggedList.length > 0;
     var lsiSevere = (currentMeta.label === 'CORROSIVE' || currentMeta.label === 'SCALE FORMING');
-    var sendAlert = (outOfRange || lsiSevere) ? 'yes' : 'no';
+    var lsiBalanced = (currentMeta.label === 'BALANCED');
+    // v0.9.0: No alerts for startup, source water, or when LSI is balanced
+    var suppressAlert = jobContext === 'startup' || waterSource === 'source' || lsiBalanced;
+    var sendAlert = (!suppressAlert && (outOfRange || lsiSevere)) ? 'yes' : 'no';
     // Alert reasons array (forward-compat for Phase 2 leak detection)
     var alertReasonsArr = [];
     if (outOfRange) alertReasonsArr.push('out_of_range');
@@ -940,6 +953,7 @@ function SWPChemistryApp() {
       updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes',
       sanitizerType: sanitizerType,
       updateSanitizerType: sanitizerSource === 'manual' ? 'yes' : 'no',
+      waterSource: waterSource,
       // v0.5.2 alert fields
       sendAlert: sendAlert,
       severityLevel: severityLevel,
@@ -1184,10 +1198,16 @@ function SWPChemistryApp() {
           <div style={S.fieldLabel}>Job Type</div>
           <select style={S.fieldSelect} value={jobContext} onChange={function(e){setJobContext(e.target.value);}}>
             <option value="">Select...</option>
-            <option value="nc">New Construction</option>
-            <option value="remodel">Remodel</option>
             <option value="service">Service</option>
             <option value="startup">Startup</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div style={S.fieldRow}>
+          <div style={S.fieldLabel}>Source</div>
+          <select style={S.fieldSelect} value={waterSource} onChange={function(e){setWaterSource(e.target.value);}}>
+            <option value="pool">Pool Water</option>
+            <option value="source">Source Water</option>
           </select>
         </div>
       </div>
@@ -1226,7 +1246,7 @@ function SWPChemistryApp() {
             </div>
           </div>
         </div>
-        {desiredMode==='auto' && <div style={{textAlign:'center',fontSize:10,color:B.teal,marginBottom:6,fontStyle:'italic'}}>LSI-Balanced + Weekly Buffer</div>}
+        {desiredMode==='auto' && <div style={{textAlign:'center',fontSize:10,color:useBuffer?B.teal:B.flagYellow,marginBottom:6,fontStyle:'italic'}}>{useBuffer ? 'LSI-Balanced + Weekly Buffer' : 'Mirroring Current Readings'}</div>}
         {PARAMS.map(function(p){
           var flag = getFlag(p.key, current[p.key], ranges);
           var label = getParamLabel(p);
@@ -1279,9 +1299,13 @@ function SWPChemistryApp() {
       </div>
       <div style={S.tabContent}>
         {tab==='dosing' && <div>
-          {desiredMode==='auto' && <div style={{background:B.teal+'20',border:'1px solid '+B.teal,borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+          {desiredMode==='auto' && useBuffer && <div style={{background:B.teal+'20',border:'1px solid '+B.teal,borderRadius:8,padding:'10px 12px',marginBottom:10}}>
             <div style={{fontSize:12,fontWeight:700,color:B.teal,marginBottom:4}}>Auto-LSI Weekly Dosing</div>
             <div style={{fontSize:11,color:B.gray,lineHeight:1.4}}>Targets are LSI-balanced with a weekly buffer. pH is set 0.1 below ideal (rises naturally). FC includes +2 ppm buffer for 7-day drift. TA buffered +5 ppm for acid losses. Dose to these levels and the pool stays balanced all week.</div>
+          </div>}
+          {desiredMode==='auto' && !useBuffer && <div style={{background:B.flagYellow+'20',border:'1px solid '+B.flagYellow,borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:B.flagYellow,marginBottom:4}}>{jobContext==='startup' ? 'Startup Mode' : 'Source Water Mode'}</div>
+            <div style={{fontSize:11,color:B.gray,lineHeight:1.4}}>Desired readings mirror current readings. No weekly buffer applied{waterSource==='source' ? ' — testing source water baseline.' : ' — every startup is unique.'}</div>
           </div>}
           {dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
           {dosing.map(function(d,i){return <div key={i} style={S.doseItem}><div style={S.doseChem}>{d.chem}</div>{d.amount!=null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}<div style={S.doseReason}>{d.reason}</div></div>;})}
@@ -1450,7 +1474,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.8.0{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.0{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
@@ -1459,4 +1483,3 @@ root.render(React.createElement(SWPChemistryApp));
 </script>
 </body>
 </html>     
-<!-- deploy trigger 1779082467 -->
