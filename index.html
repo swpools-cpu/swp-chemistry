@@ -198,56 +198,6 @@ function calcLSI(vals) {
   var lsi = +(vals.pH + TF + CF + AF - 12.1).toFixed(2);
   return { lsi:lsi, TF:TF, CF:CF, AF:AF, carbAlk:carbAlk };
 }
-// Auto-LSI: calculate desired readings targeting LSI ~ 0.0 with weekly drift buffer
-// DFW summer drift rates (7-day service cycle):
-//   pH rises ~0.1-0.2/wk (CO2 outgassing) -> target 0.1 below LSI-ideal
-//   TA drops ~2-5 ppm/wk (acid additions) -> target +5 above ideal
-//   CH very stable -> keep current if in range
-//   CYA stable (slow UV consumption) -> keep current if in range
-//   FC drops 1-3 ppm/day in DFW heat -> dose well above minimum
-//   Phosphates: target <200 ppb (DFW tap often 300-600+)
-function calcAutoDesired(current, sanitizerType) {
-  var isSalt = sanitizerType === 'Salt';
-  // Temp: can't change water temp - keep current
-  var temp = current.temp;
-  // CYA: keep if in range, raise if low, accept if high (hard to lower)
-  var cyaMin = isSalt ? 60 : 30;
-  var cyaMax = isSalt ? 80 : 50;
-  var cyaIdeal = isSalt ? 70 : 40;
-  var cya;
-  if (current.cya >= cyaMin && current.cya <= cyaMax) { cya = current.cya; }
-  else if (current.cya < cyaMin) { cya = cyaIdeal; }
-  else { cya = current.cya; }
-  // CH: keep if 200-400, raise if low, accept if high (hard to lower)
-  var ch;
-  if (current.ch >= 200 && current.ch <= 400) { ch = current.ch; }
-  else if (current.ch < 200) { ch = 275; }
-  else { ch = current.ch; }
-  // TA: target carbonate alkalinity ~80, then TA = carbAlk + CYA/3
-  // Weekly buffer: +5 ppm (TA drifts down slowly)
-  var targetCarbAlk = 80;
-  var ta = targetCarbAlk + Math.round(cya / 3) + 5;
-  ta = Math.max(60, Math.min(120, ta));
-  // TDS/Salt
-  var tds = isSalt ? 3200 : current.tds;
-  // Solve for LSI-optimal pH: LSI = pH + TF + CF + AF - 12.1 = 0
-  var TF = interp(TEMP_TABLE, temp);
-  var carbAlk = Math.max(ta - Math.round(cya / 3), 5);
-  var CF = interp(CH_TABLE, Math.max(ch, 5));
-  var AF = interp(TA_TABLE, Math.max(carbAlk, 5));
-  var idealPH = +(12.1 - TF - CF - AF).toFixed(2);
-  // Weekly buffer: pH rises ~0.1/wk, target lower so pool stays balanced
-  var pH = +(idealPH - 0.1).toFixed(1);
-  pH = Math.max(7.2, Math.min(7.8, pH));
-  // FC: minimum = CYA x 7.5% (industry standard), min floor 2.0 ppm
-  // Weekly buffer: +2 ppm for 7-day drift in DFW summer heat
-  var minFC = Math.max(2.0, +(cya * 0.075).toFixed(1));
-  var fc = +(minFC + 2.0).toFixed(1);
-  fc = Math.min(fc, 10.0);
-  // Phosphate: target <=200 ppb
-  var phos = Math.min(current.phos, 200);
-  return { temp:temp, pH:pH, ta:ta, ch:ch, cya:cya, tds:tds, fc:fc, phos:phos };
-}
 function calcDosing(current, desired, volume, sanitizerType) {
   var vf = volume / 10000;
   var carbAlk = Math.max(current.ta - Math.round(current.cya / 3), 5);
@@ -490,7 +440,6 @@ function SWPChemistryApp() {
   function initVals() { var o = {}; PARAMS.concat(EXTRA_PARAMS).forEach(function(p){o[p.key]=p.dflt;}); return o; }
   var _cur = useState(initVals), current = _cur[0], setCurrent = _cur[1];
   var _des = useState(initVals), desired = _des[0], setDesired = _des[1];
-  var _dm = useState('auto'), desiredMode = _dm[0], setDesiredMode = _dm[1];
   var updateCurrent = useCallback(function(key,val){setCurrent(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
   var updateDesired = useCallback(function(key,val){setDesired(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
   var updateVolInput = useCallback(function(key,val){setVolInputs(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
@@ -500,19 +449,6 @@ function SWPChemistryApp() {
       updateDesired('tds', 3200);
     }
   }, [sanitizerType]);
-  // Buffer logic: only Service/Other + Pool Water gets weekly buffer
-  var useBuffer = waterSource !== 'source' && jobContext !== 'startup';
-  // Auto-LSI: recalculate desired readings when current values or sanitizer change
-  useEffect(function(){
-    if (desiredMode === 'auto') {
-      if (useBuffer) {
-        setDesired(calcAutoDesired(current, sanitizerType));
-      } else {
-        // Mirror current readings for startup or source water
-        setDesired(Object.assign({}, current));
-      }
-    }
-  }, [desiredMode, current, sanitizerType, useBuffer]);
   var currentLSI = useMemo(function(){return calcLSI(current);}, [current]);
   var desiredLSI = useMemo(function(){return calcLSI(desired);}, [desired]);
   var currentMeta = lsiMeta(currentLSI.lsi);
@@ -1245,21 +1181,13 @@ function SWPChemistryApp() {
           <div style={{flex:'1 1 0'}} />
           <div style={{flex:'1 1 0',textAlign:'center'}}>
             <div style={S.colHeader}>Desired</div>
-            <div style={{display:'flex',justifyContent:'center',marginTop:2}}>
-              <div style={Object.assign({},S.toggleGroup,{transform:'scale(0.85)'})}>
-                <button style={toggleBtnStyle(desiredMode==='auto')} onClick={function(){setDesiredMode('auto');}}>Auto</button>
-                <button style={toggleBtnStyle(desiredMode==='manual')} onClick={function(){setDesiredMode('manual');}}>Manual</button>
-              </div>
-            </div>
           </div>
         </div>
-        {desiredMode==='auto' && <div style={{textAlign:'center',fontSize:10,color:useBuffer?B.teal:B.flagYellow,marginBottom:6,fontStyle:'italic'}}>{useBuffer ? 'LSI-Balanced + Weekly Buffer' : 'Mirroring Current Readings'}</div>}
         {PARAMS.map(function(p){
           var flag = getFlag(p.key, current[p.key], ranges);
           var label = getParamLabel(p);
           var dd = p.decimals||0;
           var desVal = desired[p.key];
-          var desDisplay = dd > 0 ? desVal.toFixed(dd) : String(desVal);
           return (
           <div key={p.key} style={S.paramRow}>
             <ParamInput mode={mode} value={current[p.key]} step={p.step} min={p.min} max={p.max} onChange={function(v){updateCurrent(p.key,v);}} decimals={dd} />
@@ -1268,9 +1196,7 @@ function SWPChemistryApp() {
               {p.showCeiling && <div style={S.subLabel}>pH Ceiling<br/>{currentCeiling}</div>}
               {p.showCarbAlk && <div style={S.subLabel}>{p.subLabel}<br/>{currentLSI.carbAlk}</div>}
             </div>
-            {desiredMode==='auto'
-              ? <div style={{flex:'1 1 0',textAlign:'center',fontSize:16,fontWeight:800,color:B.lsiGreen}}>{desDisplay}</div>
-              : <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />}
+            <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />
           </div>
         );
         })}
@@ -1284,14 +1210,11 @@ function SWPChemistryApp() {
           var flag = getFlag(p.key, current[p.key], ranges);
           var dd = p.decimals||0;
           var desVal = desired[p.key];
-          var desDisplay = dd > 0 ? desVal.toFixed(dd) : String(desVal);
           return (
           <div key={p.key} style={S.paramRow}>
             <ParamInput mode={mode} value={current[p.key]} step={p.step} min={p.min} max={p.max} onChange={function(v){updateCurrent(p.key,v);}} decimals={dd} />
             <div style={S.paramLabel}>{p.label}<FlagIndicator flag={flag} /></div>
-            {desiredMode==='auto'
-              ? <div style={{flex:'1 1 0',textAlign:'center',fontSize:16,fontWeight:800,color:B.lsiGreen}}>{desDisplay}</div>
-              : <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />}
+            <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />
           </div>
         );
         })}
@@ -1306,14 +1229,6 @@ function SWPChemistryApp() {
       </div>
       <div style={S.tabContent}>
         {tab==='dosing' && <div>
-          {desiredMode==='auto' && useBuffer && <div style={{background:B.teal+'20',border:'1px solid '+B.teal,borderRadius:8,padding:'10px 12px',marginBottom:10}}>
-            <div style={{fontSize:12,fontWeight:700,color:B.teal,marginBottom:4}}>Auto-LSI Weekly Dosing</div>
-            <div style={{fontSize:11,color:B.gray,lineHeight:1.4}}>Targets are LSI-balanced with a weekly buffer. pH is set 0.1 below ideal (rises naturally). FC includes +2 ppm buffer for 7-day drift. TA buffered +5 ppm for acid losses. Dose to these levels and the pool stays balanced all week.</div>
-          </div>}
-          {desiredMode==='auto' && !useBuffer && <div style={{background:B.flagYellow+'20',border:'1px solid '+B.flagYellow,borderRadius:8,padding:'10px 12px',marginBottom:10}}>
-            <div style={{fontSize:12,fontWeight:700,color:B.flagYellow,marginBottom:4}}>{jobContext==='startup' ? 'Startup Mode' : 'Source Water Mode'}</div>
-            <div style={{fontSize:11,color:B.gray,lineHeight:1.4}}>Desired readings mirror current readings. No weekly buffer applied{waterSource==='source' ? ' — testing source water baseline.' : ' — every startup is unique.'}</div>
-          </div>}
           {dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
           {dosing.map(function(d,i){return <div key={i} style={S.doseItem}><div style={S.doseChem}>{d.chem}</div>{d.amount!=null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}<div style={S.doseReason}>{d.reason}</div></div>;})}
         </div>}
@@ -1483,7 +1398,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.3{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.4{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
