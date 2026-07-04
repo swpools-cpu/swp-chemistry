@@ -449,6 +449,10 @@ function SWPChemistryApp() {
       updateDesired('tds', 3200);
     }
   }, [sanitizerType]);
+  // Water temp can't be dosed — desired temp mirrors current temp
+  useEffect(function(){
+    setDesired(function(prev){ if (prev.temp === current.temp) return prev; var n = Object.assign({}, prev); n.temp = current.temp; return n; });
+  }, [current.temp]);
   var currentLSI = useMemo(function(){return calcLSI(current);}, [current]);
   var desiredLSI = useMemo(function(){return calcLSI(desired);}, [desired]);
   var currentMeta = lsiMeta(currentLSI.lsi);
@@ -1196,7 +1200,9 @@ function SWPChemistryApp() {
               {p.showCeiling && <div style={S.subLabel}>pH Ceiling<br/>{currentCeiling}</div>}
               {p.showCarbAlk && <div style={S.subLabel}>{p.subLabel}<br/>{currentLSI.carbAlk}</div>}
             </div>
-            <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />
+            {p.key==='temp'
+              ? <div style={{flex:'1 1 0',textAlign:'center',fontSize:16,fontWeight:800,color:B.grayMid}}>{desVal}</div>
+              : <ParamInput mode={mode} value={desVal} step={p.step} min={p.min} max={p.max} onChange={function(v){updateDesired(p.key,v);}} decimals={dd} />}
           </div>
         );
         })}
@@ -1398,7 +1404,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.4{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.5{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
