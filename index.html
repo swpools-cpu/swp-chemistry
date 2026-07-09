@@ -203,23 +203,30 @@ function calcDosing(current, desired, volume, sanitizerType) {
   var vf = volume / 10000;
   var carbAlk = Math.max(current.ta - Math.round(current.cya / 3), 5);
   var recs = [];
-  if (current.pH > desired.pH + 0.05) {
+  var loweringTA = current.ta > desired.ta + 10;
+  // Lowering TA is dosed FIRST \u2014 the acid dosed for TA also lowers pH (Orenda method),
+  // so no separate pH-lowering dose is given when a TA reduction is being dosed.
+  if (loweringTA) {
+    var taAcid = +(((current.ta - desired.ta) / 10) * 26 * vf).toFixed(1);
+    recs.push({ chem:'Muriatic Acid (31.45%) + Aerate', amount:taAcid, unit:'fl oz', reason:'Lower TA ' + current.ta + ' \u2192 ' + desired.ta + ' ppm \u2014 dose this first. Aerate after to restore pH. No aeration? Dose in stages & retest, or raise pH with borax (not soda ash)' });
+    if (current.pH > desired.pH + 0.05) {
+      recs.push({ chem:'pH \u2014 no separate acid dose needed', amount:null, unit:'', reason:'The TA dose above will also lower pH. Retest pH after aeration/circulation and dose for pH only if still above ' + desired.pH.toFixed(1) });
+    }
+  }
+  if (!loweringTA && current.pH > desired.pH + 0.05) {
     var pHDrop = current.pH - desired.pH;
     var acidDose = +(pHDrop * (5.317 + 0.2495 * carbAlk) * vf).toFixed(2);
     recs.push({ chem:'Muriatic Acid (31.45%)', amount:acidDose, unit:'fl oz', reason:'Lower pH ' + current.pH.toFixed(1) + ' \u2192 ' + desired.pH.toFixed(1) });
   }
   if (current.pH < desired.pH - 0.05) {
-    recs.push({ chem:'Soda Ash (Na\u2082CO\u2083)', amount:+(((desired.pH - current.pH)/0.1)*0.502*vf).toFixed(2), unit:'lbs', reason:'Raise pH ' + current.pH.toFixed(1) + ' \u2192 ' + desired.pH.toFixed(1) });
+    if (loweringTA) {
+      recs.push({ chem:'Borax \u2014 raise pH (after TA dose)', amount:null, unit:'', reason:'pH is below target while lowering TA \u2014 use borax, not soda ash (soda ash raises TA back up). Retest after the TA dose & aeration before adding' });
+    } else {
+      recs.push({ chem:'Soda Ash (Na\u2082CO\u2083)', amount:+(((desired.pH - current.pH)/0.1)*0.502*vf).toFixed(2), unit:'lbs', reason:'Raise pH ' + current.pH.toFixed(1) + ' \u2192 ' + desired.pH.toFixed(1) });
+    }
   }
   if (current.ta < desired.ta - 5) {
     recs.push({ chem:'Sodium Bicarbonate', amount:+(((desired.ta - current.ta)/10)*1.4*vf).toFixed(2), unit:'lbs', reason:'Raise TA ' + current.ta + ' \u2192 ' + desired.ta + ' ppm' });
-  }
-  if (current.ta > desired.ta + 10) {
-    var taAcid = +(((current.ta - desired.ta) / 10) * 26 * vf).toFixed(1);
-    recs.push({ chem:'Muriatic Acid (31.45%) + Aerate', amount:taAcid, unit:'fl oz', reason:'Lower TA ' + current.ta + ' \u2192 ' + desired.ta + ' ppm \u2014 aerate after to restore pH. No aeration? Dose in stages & retest, or raise pH with borax (not soda ash)' });
-    if (current.pH > desired.pH + 0.05) {
-      recs.push({ chem:'\u26a0 Do NOT add both acid doses at once', amount:null, unit:'', reason:'Add the TA dose first \u2014 it will also lower pH. Retest after aeration/circulation, then dose for pH only if still needed' });
-    }
   }
   if (current.ch < desired.ch - 25) {
     recs.push({ chem:'Calcium Chloride (94%)', amount:+(((desired.ch - current.ch)/10)*1.004*vf).toFixed(2), unit:'lbs', reason:'Raise CH ' + current.ch + ' \u2192 ' + desired.ch + ' ppm' });
@@ -445,13 +452,25 @@ function SWPChemistryApp() {
   function initVals() { var o = {}; PARAMS.concat(EXTRA_PARAMS).forEach(function(p){o[p.key]=p.dflt;}); return o; }
   var _cur = useState(initVals), current = _cur[0], setCurrent = _cur[1];
   var _des = useState(initVals), desired = _des[0], setDesired = _des[1];
-  var updateCurrent = useCallback(function(key,val){setCurrent(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
-  var updateDesired = useCallback(function(key,val){setDesired(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
+  // Tracks which desired fields the user has manually adjusted — those stop mirroring current
+  var desiredTouched = useRef({});
+  var updateCurrent = useCallback(function(key,val){
+    setCurrent(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});
+    // Live-mirror current → desired unless the user has set that desired value themselves
+    // (temp is handled by its own mirror effect below)
+    if (key !== 'temp' && !desiredTouched.current[key]) {
+      setDesired(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});
+    }
+  }, []);
+  var updateDesired = useCallback(function(key,val){
+    desiredTouched.current[key] = true;
+    setDesired(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});
+  }, []);
   var updateVolInput = useCallback(function(key,val){setVolInputs(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
   // When sanitizer type changes to Salt, set default desired TDS if it's 0
   useEffect(function(){
     if (sanitizerType === 'Salt' && desired.tds === 0) {
-      updateDesired('tds', 3200);
+      updateDesired('tds', 3200); // marks desired salt as set, so entering current salt won't overwrite the 3200 target
     }
   }, [sanitizerType]);
   // Water temp can't be dosed — desired temp mirrors current temp
@@ -1409,7 +1428,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.7{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.8{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
