@@ -196,8 +196,10 @@ function calcLSI(vals) {
   var TF = interp(TEMP_TABLE, vals.temp);
   var CF = interp(CH_TABLE, Math.max(vals.ch, 5));
   var AF = interp(TA_TABLE, Math.max(carbAlk, 5));
-  var lsi = +(vals.pH + TF + CF + AF - 12.1).toFixed(2);
-  return { lsi:lsi, TF:TF, CF:CF, AF:AF, carbAlk:carbAlk };
+  // TDS correction factor: 12.1 below 1,000 ppm, 12.2 at/above (salt pools) — higher TDS lowers LSI
+  var TDSf = vals.tds >= 1000 ? 12.2 : 12.1;
+  var lsi = +(vals.pH + TF + CF + AF - TDSf).toFixed(2);
+  return { lsi:lsi, TF:TF, CF:CF, AF:AF, carbAlk:carbAlk, TDSf:TDSf };
 }
 function calcDosing(current, desired, volume, sanitizerType) {
   var vf = volume / 10000;
@@ -1278,7 +1280,7 @@ function SWPChemistryApp() {
           </div>
         </div>}
         {tab==='factors' && <div>
-          <div style={{fontSize:12,color:B.grayMid,marginBottom:8}}>LSI = pH + TF + CF + AF - 12.1</div>
+          <div style={{fontSize:12,color:B.grayMid,marginBottom:8}}>LSI = pH + TF + CF + AF - TDSf</div>
           <div style={{display:'flex',gap:12}}>
             <div style={{flex:1}}>
               <div style={Object.assign({},S.colHeader,{marginBottom:8})}>Current</div>
@@ -1286,6 +1288,7 @@ function SWPChemistryApp() {
               <div style={S.factorRow}><span>Temp Factor</span><span style={S.factorVal}>{currentLSI.TF.toFixed(2)}</span></div>
               <div style={S.factorRow}><span>Calcium Factor</span><span style={S.factorVal}>{currentLSI.CF.toFixed(2)}</span></div>
               <div style={S.factorRow}><span>Alk Factor</span><span style={S.factorVal}>{currentLSI.AF.toFixed(2)}</span></div>
+              <div style={S.factorRow}><span>TDS Factor</span><span style={S.factorVal}>{currentLSI.TDSf.toFixed(1)}</span></div>
               <div style={S.factorRow}><span>Carb Alk</span><span style={S.factorVal}>{currentLSI.carbAlk}</span></div>
               <div style={Object.assign({},S.factorRow,{borderTop:'1px solid '+B.navyLight,paddingTop:6,marginTop:4})}><span style={{fontWeight:700}}>LSI</span><span style={{fontWeight:800,color:currentMeta.color}}>{currentLSI.lsi.toFixed(2)}</span></div>
             </div>
@@ -1296,6 +1299,7 @@ function SWPChemistryApp() {
               <div style={S.factorRow}><span>Temp Factor</span><span style={S.factorVal}>{desiredLSI.TF.toFixed(2)}</span></div>
               <div style={S.factorRow}><span>Calcium Factor</span><span style={S.factorVal}>{desiredLSI.CF.toFixed(2)}</span></div>
               <div style={S.factorRow}><span>Alk Factor</span><span style={S.factorVal}>{desiredLSI.AF.toFixed(2)}</span></div>
+              <div style={S.factorRow}><span>TDS Factor</span><span style={S.factorVal}>{desiredLSI.TDSf.toFixed(1)}</span></div>
               <div style={S.factorRow}><span>Carb Alk</span><span style={S.factorVal}>{desiredLSI.carbAlk}</span></div>
               <div style={Object.assign({},S.factorRow,{borderTop:'1px solid '+B.navyLight,paddingTop:6,marginTop:4})}><span style={{fontWeight:700}}>LSI</span><span style={{fontWeight:800,color:desiredMeta.color}}>{desiredLSI.lsi.toFixed(2)}</span></div>
             </div>
@@ -1307,7 +1311,7 @@ function SWPChemistryApp() {
           <div style={S.infoRow}><div style={infoDotStyle('#5cb85c')} /><div style={S.infoText}><div style={S.infoLabel}>Green {'\u2014'} Ideal Balance (0.00 to +0.30)</div>Water is happy. Slightly positive LSI protects plaster. This is the target zone.</div></div>
           <div style={S.infoRow}><div style={infoDotStyle('#f0ad4e')} /><div style={S.infoText}><div style={S.infoLabel}>Yellow {'\u2014'} Acceptable (-0.30 to -0.01)</div>Slightly under-saturated. pH will naturally rise toward green over time.</div></div>
           <div style={S.infoRow}><div style={infoDotStyle('#d9534f')} /><div style={S.infoText}><div style={S.infoLabel}>Red {'\u2014'} Corrosive ({'\u2264'} -0.31)</div>Aggressive water. Will etch plaster, corrode metal, and damage equipment.</div></div>
-          <div style={{marginTop:12,fontSize:11,color:B.grayDim,lineHeight:1.5}}>LSI = pH + TF + CF + AF - 12.1. Factors derived from PHTA lookup tables.</div>
+          <div style={{marginTop:12,fontSize:11,color:B.grayDim,lineHeight:1.5}}>LSI = pH + TF + CF + AF - TDSf. TDSf is 12.1 below 1,000 ppm TDS and 12.2 at or above (salt pools). Factors derived from PHTA lookup tables.</div>
         </div>}
         {tab==='volume' && <div>
           <div style={{fontSize:13,fontWeight:700,color:B.white,marginBottom:10}}>Pool Volume Estimator</div>
@@ -1428,7 +1432,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.8{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.9{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
