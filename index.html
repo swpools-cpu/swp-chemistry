@@ -459,6 +459,9 @@ function SWPChemistryApp() {
   // Filter state — pre-populated from JN on job select
   var _ft = useState(''), filterType = _ft[0], setFilterType = _ft[1];
   var _ftSource = useState(''), filterTypeSource = _ftSource[0], setFilterTypeSource = _ftSource[1]; // 'jn' or 'manual'
+  // v0.9.11: JN-had-a-value flags — anything already set in JobNimbus is NEVER overridden from the field
+  var _jhs = useState(false), jnHadSanitizer = _jhs[0], setJnHadSanitizer = _jhs[1];
+  var _jhf = useState(false), jnHadFilterType = _jhf[0], setJnHadFilterType = _jhf[1];
   var _lastClean = useState(''), lastFilterClean = _lastClean[0], setLastFilterClean = _lastClean[1];
   var _fcd = useState(false), filterCleanDone = _fcd[0], setFilterCleanDone = _fcd[1];
   var _fbw = useState(false), filterBackwash = _fbw[0], setFilterBackwash = _fbw[1];
@@ -581,17 +584,21 @@ function SWPChemistryApp() {
     if (job.sanitizerType) {
       setSanitizerType(job.sanitizerType);
       setSanitizerSource('jn');
+      setJnHadSanitizer(true);
     } else {
       setSanitizerType('');
       setSanitizerSource('');
+      setJnHadSanitizer(false);
     }
     // Pre-fill filter info from JN
     if (job.filterType) {
       setFilterType(job.filterType);
       setFilterTypeSource('jn');
+      setJnHadFilterType(true);
     } else {
       setFilterType('');
       setFilterTypeSource('');
+      setJnHadFilterType(false);
     }
     setLastFilterClean(job.filterClean || '');
     setFilterCleanDone(false);
@@ -603,9 +610,9 @@ function SWPChemistryApp() {
     setJobSearch('');
     setSaveResult(null);
     setSanitizerType('');
-    setSanitizerSource('');
+    setSanitizerSource(''); setJnHadSanitizer(false);
     setFilterType('');
-    setFilterTypeSource('');
+    setFilterTypeSource(''); setJnHadFilterType(false);
     setLastFilterClean('');
     setFilterCleanDone(false);
     setFilterBackwash(false);
@@ -956,7 +963,7 @@ function SWPChemistryApp() {
       poolVolume: volume,
       updatePoolGallons: selectedJob.poolGallons > 0 ? 'no' : 'yes',
       sanitizerType: sanitizerType,
-      updateSanitizerType: sanitizerSource === 'manual' ? 'yes' : 'no',
+      updateSanitizerType: (sanitizerSource === 'manual' && !jnHadSanitizer) ? 'yes' : 'no', // v0.9.11: never override a JN value
       waterSource: waterSource,
       // v0.5.2 alert fields
       sendAlert: sendAlert,
@@ -976,7 +983,7 @@ function SWPChemistryApp() {
       companyCamProjectId: (selectedJob && selectedJob.companyCamProjectId) ? selectedJob.companyCamProjectId : '',
       // Filter service fields (v0.8.0)
       filterType: filterType,
-      updateFilterType: filterTypeSource === 'manual' ? 'yes' : 'no',
+      updateFilterType: (filterTypeSource === 'manual' && !jnHadFilterType) ? 'yes' : 'no', // v0.9.11: never override a JN value
       filterCleanDone: filterCleanDone ? 'yes' : 'no',
       filterBackwash: filterBackwash ? 'yes' : 'no',
       deAmount: (filterType === 'DE' && (filterCleanDone || filterBackwash) && deAmount) ? deAmount : '',
@@ -1535,7 +1542,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.10{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.11{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
