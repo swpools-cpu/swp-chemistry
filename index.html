@@ -258,6 +258,37 @@ function phCeiling(ta, cya) {
 function tdsLabel(sanitizerType) {
   return sanitizerType === 'Salt' ? 'Salt Level' : 'TDS';
 }
+
+/* ========== CHEMICAL IMPACT (Chemiculator-style, v0.9.10) ==========
+   Forward math: pick a product + amount -> ppm impact at this pool volume.
+   Per Orenda's Chemiculator: NO pH prediction. Retest pH after dosing.
+   ppmPer = ppm change per unit of product per 10,000 gal (inverse of dosing factors). */
+var IMPACT_PRODUCTS = [
+  { key:'lc125',  label:'Liquid Chlorine 12.5%',      unit:'fl oz', step:8,   max:512,  param:'fc',  ppmPer:0.1,   decimals:2 },
+  { key:'lc10',   label:'Liquid Chlorine 10%',        unit:'fl oz', step:8,   max:512,  param:'fc',  ppmPer:0.08,  decimals:2 },
+  { key:'calhypo',label:'Cal-Hypo 65-68%',            unit:'oz',    step:1,   max:160,  param:'fc',  ppmPer:0.483, decimals:2, side:{ param:'ch', ppmPer:0.338 } },
+  { key:'bicarb', label:'Sodium Bicarbonate',         unit:'lbs',   step:0.5, max:50,   param:'ta',  ppmPer:7.14,  decimals:0 },
+  { key:'cacl94', label:'Calcium Chloride 94%',       unit:'lbs',   step:1,   max:100,  param:'ch',  ppmPer:9.96,  decimals:0 },
+  { key:'cacl77', label:'Calcium Chloride 77%',       unit:'lbs',   step:1,   max:100,  param:'ch',  ppmPer:8.16,  decimals:0 },
+  { key:'salt',   label:'Pool Salt (NaCl)',           unit:'lbs',   step:5,   max:800,  param:'tds', ppmPer:11.98, decimals:0 },
+  { key:'cya',    label:'CYA / Stabilizer',           unit:'lbs',   step:0.5, max:25,   param:'cya', ppmPer:12.0,  decimals:0 },
+];
+function impactProduct(key) {
+  for (var i = 0; i < IMPACT_PRODUCTS.length; i++) if (IMPACT_PRODUCTS[i].key === key) return IMPACT_PRODUCTS[i];
+  return null;
+}
+function calcImpact(rows, volume) {
+  var vf = Math.max(volume, 1000) / 10000;
+  var deltas = {};
+  rows.forEach(function(row){
+    var p = impactProduct(row.prod);
+    if (!p || !row.amt || row.amt <= 0) return;
+    deltas[p.param] = (deltas[p.param] || 0) + (row.amt * p.ppmPer) / vf;
+    if (p.side) deltas[p.side.param] = (deltas[p.side.param] || 0) + (row.amt * p.side.ppmPer) / vf;
+  });
+  return deltas;
+}
+var IMPACT_PARAM_LABELS = { fc:'Chlorine', ta:'Total Alkalinity', ch:'Calcium', tds:'TDS/Salt', cya:'CYA' };
 var S = {
   app: { fontFamily:"'Jost',sans-serif", background:B.navy, minHeight:'100vh', maxWidth:440, margin:'0 auto', color:B.white, position:'relative', paddingBottom:20 },
   header: { background:'linear-gradient(135deg, '+B.blue+' 0%, '+B.teal+' 100%)', padding:'16px 20px 14px', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'0 0 16px 16px' },
@@ -449,6 +480,8 @@ function SWPChemistryApp() {
   var _jc = useState(''), jobContext = _jc[0], setJobContext = _jc[1];
   var _ws2 = useState('pool'), waterSource = _ws2[0], setWaterSource = _ws2[1];
   var _ca = useState(''), chemsAdded = _ca[0], setChemsAdded = _ca[1];
+  // Chemical Impact tab state (v0.9.10) — up to 3 product rows, Orenda Chemiculator style
+  var _imp = useState([{prod:'', amt:0}]), impactRows = _imp[0], setImpactRows = _imp[1];
   // Dynamic ranges based on sanitizer type
   var ranges = useMemo(function(){ return getRanges(sanitizerType); }, [sanitizerType]);
   function initVals() { var o = {}; PARAMS.concat(EXTRA_PARAMS).forEach(function(p){o[p.key]=p.dflt;}); return o; }
@@ -1254,6 +1287,7 @@ function SWPChemistryApp() {
       {/* TABS */}
       <div style={S.tabBar}>
         <button style={tabBtnStyle(tab==='dosing')} onClick={function(){setTab('dosing');}}>Dosing</button>
+        <button style={tabBtnStyle(tab==='impact')} onClick={function(){setTab('impact');}}>Impact</button>
         <button style={tabBtnStyle(tab==='startup')} onClick={function(){setTab('startup');}}>Startup</button>
         <button style={tabBtnStyle(tab==='factors')} onClick={function(){setTab('factors');}}>Factors</button>
         <button style={tabBtnStyle(tab==='info')} onClick={function(){setTab('info');}}>LSI Info</button>
@@ -1263,6 +1297,75 @@ function SWPChemistryApp() {
         {tab==='dosing' && <div>
           {dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
           {dosing.map(function(d,i){return <div key={i} style={S.doseItem}><div style={S.doseChem}>{d.chem}</div>{d.amount!=null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}<div style={S.doseReason}>{d.reason}</div></div>;})}
+        </div>}
+        {tab==='impact' && volume < 1000 && <div>
+          <div style={Object.assign({},S.doseItem,{textAlign:'center'})}>
+            <div style={{fontSize:13,fontWeight:700,color:'#f0ad4e',marginBottom:4}}>Set pool volume first</div>
+            <div style={{fontSize:12,color:B.gray}}>Select a job (volume auto-fills from JobNimbus) or use the Volume tab to estimate it. Impact math needs real gallons.</div>
+          </div>
+        </div>}
+        {tab==='impact' && volume >= 1000 && <div>
+          <div style={{fontSize:12,color:B.grayMid,marginBottom:10}}>What will these chemicals do to this pool? Impacts scaled to {volume.toLocaleString()} gal. Pick up to 3 products.</div>
+          {impactRows.map(function(row, idx){
+            var p = impactProduct(row.prod);
+            var rowDelta = p && row.amt > 0 ? (row.amt * p.ppmPer) / (Math.max(volume,1000)/10000) : 0;
+            return (<div key={idx} style={Object.assign({},S.doseItem,{paddingBottom:8})}>
+              <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
+                <select style={Object.assign({},S.fieldSelect,{flex:1})} value={row.prod} onChange={function(e){
+                  var next = impactRows.slice(); next[idx] = {prod:e.target.value, amt:0}; setImpactRows(next);
+                }}>
+                  <option value="">Select product...</option>
+                  {IMPACT_PRODUCTS.map(function(ip){ return <option key={ip.key} value={ip.key}>{ip.label}</option>; })}
+                </select>
+                {impactRows.length > 1 && <button style={Object.assign({},S.arrowBtn,{color:B.flagRed})} onClick={function(){
+                  setImpactRows(impactRows.filter(function(_,i){return i!==idx;}));
+                }}>{'\u00d7'}</button>}
+              </div>
+              {p && <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <div style={{flex:1}}>
+                  <CustomInput value={row.amt} step={p.step} min={0} max={p.max} decimals={0} onChange={function(v){
+                    var next = impactRows.slice(); next[idx] = {prod:row.prod, amt:v}; setImpactRows(next);
+                  }} />
+                </div>
+                <div style={{width:44,fontSize:11,color:B.grayMid}}>{p.unit}</div>
+                <div style={{flex:1,textAlign:'right',fontSize:13,fontWeight:700,color:B.teal}}>
+                  {row.amt > 0 ? '+' + (p.decimals ? rowDelta.toFixed(p.decimals) : String(Math.round(rowDelta))) + ' ppm ' + IMPACT_PARAM_LABELS[p.param] : '\u2014'}
+                </div>
+              </div>}
+              {p && p.side && row.amt > 0 && <div style={{textAlign:'right',fontSize:11,color:B.grayMid,marginTop:2}}>
+                {'also +' + ((row.amt * p.side.ppmPer) / (Math.max(volume,1000)/10000)).toFixed(0) + ' ppm ' + IMPACT_PARAM_LABELS[p.side.param]}
+              </div>}
+            </div>);
+          })}
+          {impactRows.length < 3 && <button style={Object.assign({},S.calcBtn,{margin:'2px auto 10px',padding:'8px 14px',fontSize:12,display:'block'})} onClick={function(){
+            setImpactRows(impactRows.concat([{prod:'', amt:0}]));
+          }}>+ Add another product</button>}
+          {(function(){
+            var deltas = calcImpact(impactRows, volume);
+            var keys = Object.keys(deltas);
+            if (keys.length === 0) return null;
+            var projected = Object.assign({}, current);
+            keys.forEach(function(k){ projected[k] = +(projected[k] + deltas[k]).toFixed(k==='fc'?2:0); });
+            var projLSI = calcLSI(projected);
+            return (<div style={Object.assign({},S.doseItem,{border:'1px solid '+B.tealDim})}>
+              <div style={{fontSize:12,fontWeight:700,color:B.white,marginBottom:6}}>Combined result (from current readings)</div>
+              {keys.map(function(k){
+                var flag = getFlag(k, projected[k], ranges);
+                return (<div key={k} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:B.gray,marginBottom:3}}>
+                  <span>{IMPACT_PARAM_LABELS[k]}</span>
+                  <span style={{fontWeight:700,color:B.white}}>{(k==='fc'?current[k].toFixed(1):String(Math.round(current[k])))} {'\u2192'} {(k==='fc'?projected[k].toFixed(1):String(Math.round(projected[k])))} ppm <FlagIndicator flag={flag} /></span>
+                </div>);
+              })}
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:B.gray,marginTop:6,paddingTop:6,borderTop:'1px solid '+B.navyLight}}>
+                <span>Projected LSI (pH unchanged)</span>
+                <span style={{fontWeight:800,color:lsiMeta(projLSI.lsi).color}}>{projLSI.lsi > 0 ? '+' + projLSI.lsi.toFixed(2) : projLSI.lsi.toFixed(2)}</span>
+              </div>
+            </div>);
+          })()}
+          <div style={Object.assign({},S.startupItem,{border:'1px solid '+B.tealDim,background:'transparent'})}>
+            <div style={Object.assign({},S.startupName,{color:'#f0ad4e'})}>pH is not predicted</div>
+            <div style={{fontSize:12,color:B.gray,marginTop:4}}>Per the Orenda method, pH impacts are not calculated {'\u2014'} buffering and CO{'\u2082'} make pH predictions unreliable. Retest pH (and re-run the LSI) after chemicals have circulated. Muriatic acid is not in this list for the same reason {'\u2014'} use the Dosing tab for acid.</div>
+          </div>
         </div>}
         {tab==='startup' && <div>
           <div style={{fontSize:12,color:B.grayMid,marginBottom:10}}>Orenda product doses scaled to {volume.toLocaleString()} gal</div>
@@ -1432,7 +1535,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.9{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.10{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
