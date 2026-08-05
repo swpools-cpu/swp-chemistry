@@ -121,7 +121,7 @@ function buildNoteBody(opts) {
     var display = d > 0 ? val.toFixed(d) : String(val);
     var flag = opts.getFlag(p.key, val);
     var flagStr = flag === 'ok' ? ' [OK]' : flag === 'high' ? ' [HIGH]' : flag === 'low' ? ' [LOW]' : '';
-    var label = p.key === 'tds' ? (opts.sanitizerType === 'Salt' ? 'Salt Level' : 'TDS') : p.label;
+    var label = p.key === 'tds' ? (opts.sanitizerType === 'Salt' ? 'Salt Level/TDS' : 'TDS') : p.label;
     lines.push(label+': '+display+flagStr);
   });
   lines.push('');
@@ -134,7 +134,7 @@ function buildNoteBody(opts) {
     var val = opts.desired[p.key];
     var d = p.decimals || 0;
     var display = d > 0 ? val.toFixed(d) : String(val);
-    var label = p.key === 'tds' ? (opts.sanitizerType === 'Salt' ? 'Salt Level' : 'TDS') : p.label;
+    var label = p.key === 'tds' ? (opts.sanitizerType === 'Salt' ? 'Salt Level/TDS' : 'TDS') : p.label;
     lines.push(label+': '+display);
   });
   lines.push('');
@@ -245,6 +245,23 @@ function calcDosing(current, desired, volume, sanitizerType) {
   }
   return recs;
 }
+// Convert an acid amount + unit to fluid ounces (31.45% muriatic)
+var ACID_UNIT_FLOZ = { floz:1, qt:32, gal:128 };
+function acidToFloz(amt, unit) { var n = parseFloat(amt); if (isNaN(n) || n < 0) return 0; return n * (ACID_UNIT_FLOZ[unit] || 1); }
+// Predict how a dose of 31.45% muriatic acid changes pH (immediate) and TA (permanent).
+// Inverts the same calibrations used in calcDosing: TA = 26 fl oz / 10 ppm / 10k gal;
+// pH = pHDrop * (5.317 + 0.2495*carbAlk) * vf. pH drop is immediate and rebounds with aeration.
+function calcAcidImpact(current, acidOz, volume) {
+  var vf = volume / 10000;
+  if (!acidOz || acidOz <= 0 || vf <= 0) return null;
+  var carbAlk = Math.max(current.ta - Math.round(current.cya / 3), 5);
+  var taDrop = +((acidOz / (26 * vf)) * 10).toFixed(0);
+  var newTA = Math.max(0, current.ta - taDrop);
+  var pHDrop = +(acidOz / ((5.317 + 0.2495 * carbAlk) * vf)).toFixed(2);
+  var newPH = +(current.pH - pHDrop).toFixed(2);
+  var newLSI = calcLSI(Object.assign({}, current, { pH: Math.max(newPH, 0), ta: newTA })).lsi;
+  return { taDrop:taDrop, newTA:newTA, pHDrop:pHDrop, newPH:newPH, newLSI:newLSI };
+}
 function lsiMeta(lsi) {
   if (lsi <= -0.31) return { label:'CORROSIVE', color:'#d9534f', bg:'#d9534f' };
   if (lsi <= -0.01) return { label:'ACCEPTABLE', color:'#f0ad4e', bg:'#f0ad4e' };
@@ -256,7 +273,7 @@ function phCeiling(ta, cya) {
   return +(Math.min(8.4, 7.5 + (carbAlk - 80) * 0.005)).toFixed(2);
 }
 function tdsLabel(sanitizerType) {
-  return sanitizerType === 'Salt' ? 'Salt Level' : 'TDS';
+  return sanitizerType === 'Salt' ? 'Salt Level/TDS' : 'TDS';
 }
 
 /* ========== CHEMICAL IMPACT (Chemiculator-style, v0.9.10) ==========
@@ -485,6 +502,9 @@ function SWPChemistryApp() {
   var _ca = useState(''), chemsAdded = _ca[0], setChemsAdded = _ca[1];
   // Chemical Impact tab state (v0.9.10) — up to 3 product rows, Orenda Chemiculator style
   var _imp = useState([{prod:'', amt:0}]), impactRows = _imp[0], setImpactRows = _imp[1];
+  // Acid impact preview state (Dosing tab)
+  var _acid = useState(''), acidAmt = _acid[0], setAcidAmt = _acid[1];
+  var _acidU = useState('floz'), acidUnit = _acidU[0], setAcidUnit = _acidU[1];
   // Dynamic ranges based on sanitizer type
   var ranges = useMemo(function(){ return getRanges(sanitizerType); }, [sanitizerType]);
   function initVals() { var o = {}; PARAMS.concat(EXTRA_PARAMS).forEach(function(p){o[p.key]=p.dflt;}); return o; }
@@ -505,12 +525,6 @@ function SWPChemistryApp() {
     setDesired(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});
   }, []);
   var updateVolInput = useCallback(function(key,val){setVolInputs(function(prev){var n=Object.assign({},prev);n[key]=val;return n;});}, []);
-  // When sanitizer type changes to Salt, set default desired TDS if it's 0
-  useEffect(function(){
-    if (sanitizerType === 'Salt' && desired.tds === 0) {
-      updateDesired('tds', 3200); // marks desired salt as set, so entering current salt won't overwrite the 3200 target
-    }
-  }, [sanitizerType]);
   // Water temp can't be dosed — desired temp mirrors current temp
   useEffect(function(){
     setDesired(function(prev){ if (prev.temp === current.temp) return prev; var n = Object.assign({}, prev); n.temp = current.temp; return n; });
@@ -521,10 +535,24 @@ function SWPChemistryApp() {
   var desiredMeta = lsiMeta(desiredLSI.lsi);
   var currentCeiling = phCeiling(current.ta, current.cya);
   var dosing = useMemo(function(){return calcDosing(current,desired,volume,sanitizerType);}, [current,desired,volume,sanitizerType]);
+  // Acid impact preview — prefill from the recommended acid dose, override with typed amount
+  var recAcidOz = useMemo(function(){ var m = dosing.find(function(d){ return d.chem && d.chem.indexOf('Muriatic Acid') === 0 && d.amount; }); return m ? m.amount : 0; }, [dosing]);
+  var effAcidOz = acidAmt !== '' ? acidToFloz(acidAmt, acidUnit) : recAcidOz;
+  var acidImpact = useMemo(function(){ return calcAcidImpact(current, effAcidOz, volume); }, [current, effAcidOz, volume]);
+  var acidTile = {flex:1,textAlign:'center',background:B.navy,borderRadius:8,padding:'8px 4px'};
+  var acidTileLbl = {fontSize:10,color:B.grayMid,marginBottom:3,lineHeight:1.1};
+  var acidTileVal = {fontSize:20,fontWeight:800,lineHeight:1};
+  var acidTileSub = {fontSize:10,color:B.grayDim,marginTop:3};
   var startupRecs = useMemo(function(){var vf=volume/10000;return [
     {name:'SC-1000 \u2014 Initial Dose',dose:(vf*16).toFixed(0)+' oz',note:'Day 1, before or during fill'},
     {name:'SC-1000 \u2014 Weekly Maintenance',dose:(vf*4).toFixed(0)+' oz/wk',note:'Weeks 2\u20134 post startup'},
     {name:'CE-Clarifier / Enzyme',dose:(vf*5).toFixed(0)+' oz',note:'Weekly \u2014 phosphates & organics (Orenda label: 5 oz/10k gal residential)'},
+  ];}, [volume]);
+  var careRecs = useMemo(function(){var vf=volume/10000;return [
+    {name:'SC-1000 \u2014 Scale & Metal Control',dose:(vf*3).toFixed(0)+' fl oz/wk',note:'Into the skimmer, pump running. Holds calcium & metals in solution (label: 3 fl oz/10k gal weekly).'},
+    {name:'CV-600 Enzyme',dose:(vf*3).toFixed(0)+' fl oz/wk',note:'Digests oils & organics. Busy/treed pool: up to '+(vf*5).toFixed(0)+' fl oz. Use CV-600 OR CE-Clarifier, not both.'},
+    {name:'CE-Clarifier + Enzyme',dose:(vf*1).toFixed(0)+' fl oz/wk',note:'Spray on the surface (not the skimmer) for polished water. Already contains enzyme.'},
+    {name:'PR-10,000 \u2014 Phosphate Remover',dose:'As needed',note:'When phosphates >500 ppb. Max 4 fl oz/10k per dose; around the perimeter, not the skimmer.'},
   ];}, [volume]);
   var calcVol = useMemo(function(){
     var v = volInputs, GAL = 7.48;
@@ -1304,6 +1332,25 @@ function SWPChemistryApp() {
         {tab==='dosing' && <div>
           {dosing.length===0 && <div style={Object.assign({},S.doseItem,{textAlign:'center'})}><div style={Object.assign({},S.doseChem,{color:'#5cb85c'})}>Water is balanced</div></div>}
           {dosing.map(function(d,i){return <div key={i} style={S.doseItem}><div style={S.doseChem}>{d.chem}</div>{d.amount!=null && <div style={S.doseAmt}>{d.amount} {d.unit}</div>}<div style={S.doseReason}>{d.reason}</div></div>;})}
+          <div style={Object.assign({},S.doseItem,{marginTop:14,border:'1px solid '+B.tealDim,background:B.navyMid})}>
+            <div style={{fontSize:13,fontWeight:700,color:B.teal,marginBottom:2}}>Acid Impact Preview</div>
+            <div style={{fontSize:11,color:B.grayMid,marginBottom:10,lineHeight:1.4}}>See how a dose of muriatic acid (31.45%) changes pH and alkalinity in {volume.toLocaleString()} gal.</div>
+            <div style={{display:'flex',gap:8,alignItems:'stretch',marginBottom:8}}>
+              <input type="number" inputMode="decimal" value={acidAmt} placeholder={recAcidOz ? String(recAcidOz) : '0'} onChange={function(e){setAcidAmt(e.target.value);}} style={{flex:1,minWidth:0,padding:'10px 12px',borderRadius:8,border:'1px solid '+B.navyLight,background:B.navy,color:B.white,fontSize:16,fontFamily:"'Jost',sans-serif",fontWeight:700}} />
+              <div style={{display:'flex',gap:4}}>
+                {[['floz','fl oz'],['qt','qt'],['gal','gal']].map(function(u){ var active=acidUnit===u[0]; return <button key={u[0]} onClick={function(){setAcidUnit(u[0]);}} style={{padding:'0 12px',borderRadius:8,border:'1px solid '+(active?B.teal:B.navyLight),background:active?B.teal:'transparent',color:active?B.white:B.grayMid,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:"'Jost',sans-serif"}}>{u[1]}</button>; })}
+              </div>
+            </div>
+            {acidAmt==='' && recAcidOz>0 && <div style={{fontSize:11,color:B.grayDim,marginBottom:8}}>Showing your recommended {recAcidOz} fl oz dose. Type an amount to try a different one.</div>}
+            {acidImpact ? <Fragment>
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
+                <div style={acidTile}><div style={acidTileLbl}>pH (right after)</div><div style={Object.assign({},acidTileVal,{color:B.white})}>{acidImpact.newPH.toFixed(1)}</div><div style={acidTileSub}>was {current.pH.toFixed(1)}</div></div>
+                <div style={acidTile}><div style={acidTileLbl}>Alkalinity</div><div style={Object.assign({},acidTileVal,{color:B.white})}>{acidImpact.newTA}</div><div style={acidTileSub}>was {current.ta}</div></div>
+                <div style={acidTile}><div style={acidTileLbl}>Resulting LSI</div><div style={Object.assign({},acidTileVal,{color:lsiMeta(acidImpact.newLSI).color})}>{(acidImpact.newLSI>=0?'+':'')+acidImpact.newLSI.toFixed(2)}</div><div style={acidTileSub}>{lsiMeta(acidImpact.newLSI).label}</div></div>
+              </div>
+              <div style={{fontSize:11,color:B.gray,lineHeight:1.45,background:B.navy,borderRadius:8,padding:'8px 10px'}}>Drops TA about {acidImpact.taDrop} ppm (stays down) and pH about {acidImpact.pHDrop.toFixed(1)} the moment it's added. As the pool circulates and aerates, pH climbs back toward where it started while TA stays reduced {'—'} that's why we lower TA with acid + aeration. Add with the pump running, poured slowly around the deep end.</div>
+            </Fragment> : <div style={{fontSize:12,color:B.grayMid}}>Enter an acid amount to preview its effect.</div>}
+          </div>
         </div>}
         {tab==='impact' && volume < 1000 && <div>
           <div style={Object.assign({},S.doseItem,{textAlign:'center'})}>
@@ -1376,6 +1423,7 @@ function SWPChemistryApp() {
         </div>}
         {tab==='startup' && <div>
           <div style={{fontSize:12,color:B.grayMid,marginBottom:10}}>Orenda product doses scaled to {volume.toLocaleString()} gal</div>
+          <div style={{fontSize:11,fontWeight:700,color:B.teal,textTransform:'uppercase',letterSpacing:0.5,marginBottom:8}}>Startup / New Plaster</div>
           {/* Salt startup warning in startup tab */}
           {sanitizerType === 'Salt' && (
             <div style={Object.assign({},S.startupItem,{border:'1px solid '+B.saltBlue,background:B.saltBlue+'15'})}>
@@ -1388,6 +1436,9 @@ function SWPChemistryApp() {
             <div style={Object.assign({},S.startupName,{color:'#f0ad4e'})}>DFW Note {'\u2014'} Phosphates</div>
             <div style={{fontSize:12,color:B.gray,marginTop:4}}>North Texas tap water often contains 300{'\u2013'}600+ ppb phosphates. Test and treat with CV-600/700 or PR-10,000 as needed during fill.</div>
           </div>
+          <div style={{fontSize:11,fontWeight:700,color:B.teal,textTransform:'uppercase',letterSpacing:0.5,margin:'18px 0 8px'}}>Weekly Maintenance</div>
+          {careRecs.map(function(r,i){return <div key={i} style={S.startupItem}><div style={S.startupName}>{r.name}</div><div style={S.startupDose}>{r.dose}</div><div style={S.startupNote}>{r.note}</div></div>;})}
+          <div style={{fontSize:11,color:B.grayDim,lineHeight:1.5,marginTop:8}}>Add SC-1000 first and let it circulate before other chemicals. These are Orenda label maintenance rates \u2014 adjust for bather load and phosphate levels.</div>
         </div>}
         {tab==='factors' && <div>
           <div style={{fontSize:12,color:B.grayMid,marginBottom:8}}>LSI = pH + TF + CF + AF - TDSf</div>
@@ -1542,7 +1593,7 @@ function SWPChemistryApp() {
       <button onClick={function(){ openShareReport(); }} style={Object.assign({},S.calcBtn,{margin:'4px auto 4px',background:'linear-gradient(90deg, #2ecc71 0%, #27ae60 100%)'})}>
         Share Report with Homeowner
       </button>
-      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.9.11{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
+      <div style={{textAlign:'center',padding:'8px 0 20px',fontSize:10,color:B.grayDim}}>SWP Chemistry App v0.10.0{!window.jspdf && <span style={{color:B.flagYellow}}> (PDF lib loading...)</span>}</div>
     </div>
   );
 }
